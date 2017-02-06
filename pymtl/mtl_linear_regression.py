@@ -16,7 +16,11 @@ class BayesRegression(BayesPriorTL):
 
     def __init__(self, is_classifier=True, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, lam_style=None):
         """
-        TODO
+        is_classifier:  converts to internal label representation if true
+        max_prior_iter: see mtl_bayesian_prior_models
+        prior_conv_tol: see mtl_bayesian_prior_models
+        lam:            see mtl_bayesian_prior_models
+        lam_style:      see mtl_bayesian_prior_models
         """
         super(BayesRegression, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style)
         self.is_classifier = is_classifier
@@ -26,7 +30,7 @@ class BayesRegression(BayesPriorTL):
 
     def fit(self, features, targets):
         """
-        TODO
+        Computes standard linear regression solution given current prior. 
         """
         # data safety
         if features.shape[0] != targets.shape[0]:
@@ -50,7 +54,7 @@ class BayesRegression(BayesPriorTL):
 
     def predict(self, features):
         """
-        TODO
+        Returns predicted values given features
         """
         # TODO arg checks
         if self._weights is None:
@@ -64,7 +68,7 @@ class BayesRegression(BayesPriorTL):
 
     def score(self, features, targets):
         """
-        TODO
+        If classifier, returns accuracy score on given samples and labels. If not, returns loss
         """
         if self.is_classifier:
             _, self._classes = self._convert_classes(targets)
@@ -75,7 +79,7 @@ class BayesRegression(BayesPriorTL):
 
     def loss(self, features, targets):
         """
-        TODO
+        Specifies squared loss for this particular model
         """
         X = features
         if self.is_classifier:
@@ -92,7 +96,7 @@ class BayesRegression(BayesPriorTL):
 
     def init_model(self, dim, dim_targets, init_val=0):
         """
-        TODO
+        Initialize the prior given an initial value
         """
         #prior = GaussianParams(dim[1], norm_style='Trace', init_mean_val=init_val, init_var_val=1)
         prior = SKGaussianParams(dim[1], estimator='OAS', init_mean_val=init_val, init_var_val=1)

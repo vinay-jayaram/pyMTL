@@ -79,7 +79,7 @@ class BayesPriorTL(TransferLearningBase):
 
     def fit_multi_task(self, lst_features, lst_targets, verbose=vb.ON):
         """
-        TODO
+        Generic fitting of all tasks TODO
         """
         n_tasks = len(lst_features)
         if (n_tasks != len(lst_targets)):

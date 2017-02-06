@@ -5,7 +5,7 @@ pyMTL
 [![BSD License](http://img.shields.io/badge/license-BSD-yellow.svg)](http://opensource.org/licenses/BSD-3-Clause)
 [![Downloads](http://img.shields.io/pypi/dm/Markdown.svg)](https://pypi.python.org/pypi/Markdown#downloads)
 
-This is a Python implementation of the Bayesian multi-task learning (MTL) framework for brain-computer interfacing introduced in [1-4]. The goal of the implemented MTL models is to transfer knowledge across subjects and sessions in order to work calibration-free or improve decoding performance on new sessions.
+This is a Python implementation of the Bayesian multi-task learning (MTL) framework for brain-computer interfacing introduced in [1-4]. The goal of the implemented MTL models is to transfer knowledge across subjects and sessions in order to work calibration-free or improve decoding performance on new sessions. For a detailed analysis please consult the references. 
 
 Installation
 -------------
@@ -22,6 +22,11 @@ In case that you are developing on the package, you may want to create symbolic 
 
     $ pip install -e .
 
+
+Usage
+-------
+
+Coming soon
 
 Support
 -------

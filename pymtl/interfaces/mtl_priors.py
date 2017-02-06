@@ -35,12 +35,14 @@ class PriorParamsInterface(object):
 
 class GaussianParams(PriorParamsInterface):
     """
-    TODO
+    Class implementing standard maximum likelihood updates for vector-variate Gaussian distributions
     """
 
     def __init__(self, dim, norm_style='ML', init_mean_val=0, init_var_val=1):
         """
-        TODO
+        dim: Dimension of input (scalar)
+        norm_style: 'ML' -- standard covariance estimation
+                    'Trace' -- standard covariance estimation, scaled by the trace
         """
         self.mu = init_mean_val * np.ones((dim, 1))
         self.Sigma = init_var_val * np.eye(dim)
@@ -66,7 +68,7 @@ class GaussianParams(PriorParamsInterface):
 
     def estimate_mean(self, samples):
         """
-        TODO
+        Estimate the mean of the samples
         """
         d = samples[0].shape[0]
         mu = np.zeros((d, 1))
@@ -76,7 +78,8 @@ class GaussianParams(PriorParamsInterface):
 
     def estimate_cov(self, samples, mean):
         """
-        TODO
+        Estimate the empirical covariance of the weight vectors, possibly
+        with regularization. 
         """
         d = mean.shape[0]
         # Accumulate statistics
