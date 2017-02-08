@@ -81,11 +81,10 @@ class BayesRegression(BayesPriorTL):
         err = np.sum(np.power(y-pred, 2)) #/ len(y)
         return err
 
-    def init_model(self, dim, dim_targets, init_val=0):
+    def init_model(self, dim, dim_targets, init_val=0, norm_style='OAS'):
         """
         Initialize the prior given an initial value
         """
-        #prior = GaussianParams(dim[1], norm_style='Trace', init_mean_val=init_val, init_var_val=1)
         prior = SKGaussianParams(dim[1], estimator='OAS', init_mean_val=init_val, init_var_val=1)
         self.set_prior(prior)
         self._weights = np.copy(self._prior.mu)

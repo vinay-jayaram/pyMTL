@@ -3,41 +3,41 @@
 import scipy
 import warnings
 import numpy as np
-from pymtl.interfaces.mtl_bayesian_prior_models import BayesPriorTL
+from pymtl.mtl_linear_regression import BayesRegressionClassifier
 from pymtl.interfaces.mtl_priors import GaussianParams, SKGaussianParams
 from pymtl.interfaces.gradient_interface import GradientInterface
-from sklearn import metrics
 
 __author__ = "Karl-Heinz Fiebig"
 __copyright__ = "Copyright 2017"
 
 def sigmoid(s):
     """
-    TODO
+    Convenience for sigmoid function
     """
     return 1.0/(1+np.exp(-s))
 
-class BayesLogisticRegression(BayesPriorTL, GradientInterface):
+class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
     """
-    TODO
+    Class that implements a logostic classifier with Gaussian prior regularization
     """
     
     def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, lam_style=None, optim_algo='gd', pred_threshold=0.5):
         """
         TODO
         """
-        super(BayesLogisticRegression, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style)
+        super(BayesLogisticClassifier, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style)
         self.optim_algo = optim_algo
         self.pred_threshold = pred_threshold
         self._classes = None
         self._prior = None
         self._weights = None
         self._invSigma = None
+        self._set_internal_classes([0,1])
 
 
     def fit(self, features, targets):
         """
-        TODO
+        Class-specific implementation of the fit function given features, targets, and prior
         """
         # data safety
         if features.shape[0] != targets.shape[0]:
@@ -63,19 +63,20 @@ class BayesLogisticRegression(BayesPriorTL, GradientInterface):
 
     def predict(self, features):
         """
-        TODO
+        Given new data points, return the most likely class
         """
-        # Check arguments
-        assert features.shape[1] == len(self._prior.mu), \
-            'feature dimensionality is not compatible with this model!'
-        # Apply sigmoid function
+
+        # Return probabilities above prediction threshold
         pred = self.predict_proba(features) > self.pred_threshold
         return self._recover_classes(pred)
 
     def predict_proba(self, features):
         """
-        TODO
+        Given data points, return the probability of class 1
         """
+        # Check arguments
+        assert features.shape[1] == len(self._prior.mu), \
+            'feature dimensionality is not compatible with this model!'
         if self._weights is None:
             w = self._prior.mu
         else:
@@ -85,30 +86,34 @@ class BayesLogisticRegression(BayesPriorTL, GradientInterface):
 
     def predict_log_proba(self, features):
         """
-        TODO
+        Convenience function for log probability (deprecated?)
         """
         return np.log(self.predict_proba(features))
-
-    def score(self, features, targets):
-        """
-        TODO
-        """
-        _, self._classes = self._convert_classes(targets)
-        score = metrics.accuracy_score(self.predict(features), targets.flatten())
-        return score
 
     def loss(self, features, targets):
         """
         TODO
         """
         X = features
-        y, self._classes = self._convert_classes(targets)
+        y = self._convert_classes(targets)[0]
+        
         if self._weights is None:
             w = self._prior.mu
         else:
             w = self._weights
         err = self._cross_entropy_error(X, y, w=w)
         return err
+
+    def set_prior(self, prior):
+        """
+        TODO
+        """
+        self._prior = prior
+        self._invSigma = np.linalg.inv(self._prior.Sigma)
+
+    ###########################################################################
+    # Auxiliary private methods used internally by this model
+    ###########################################################################
 
     def get_loss_gradient(self, features, targets):
         """Gradient of the Cross-Entropy FD loss w.r.t. this models weights.
@@ -131,75 +136,6 @@ class BayesLogisticRegression(BayesPriorTL, GradientInterface):
             w = self._weights
         grad = self._crossentropy_grad(X, y, w)
         return grad.reshape((len(grad), 1))
-
-
-
-    def init_model(self, dim, dim_targets, init_val=0):
-        """
-        TODO
-        """
-        prior = GaussianParams(dim[1], norm_style='Trace', init_mean_val=init_val, init_var_val=1)
-        #prior = SKGaussianParams(dim[1], estimator='OAS', init_mean_val=init_val, init_var_val=1)
-        self.set_prior(prior)
-        self._weights = np.copy(self._prior.mu)
-
-    def get_weights(self):
-        """
-        TODO
-        """
-        if self._weights is not None:
-            return self._weights
-        else:
-            return self._prior.mu
-
-    def set_weights(self, weights):
-        """
-        TODO
-        """
-        if weights is None:
-            self._weights = None
-        else:
-            self._weights = np.copy(weights)
-
-    def get_prior(self):
-        """
-        TODO
-        """
-        return self._prior
-
-
-    def set_prior(self, prior):
-        """
-        TODO
-        """
-        self._prior = prior
-        self._invSigma = np.linalg.inv(self._prior.Sigma)
-
-
-    def _convert_classes(self, targets):
-        """
-        TODO
-        """
-        # Exract classes and save them as {0, 1} targets
-        classes, inv = np.unique(targets, return_inverse=True)
-        if len(classes) > 2:
-            raise ValueError('Expected exactly two classes for binary classification, but got \
-                             {}'.format(len(self._classes)))
-        # Convert to {0, 1} targets
-        y = inv.reshape(len(inv), 1)
-        return y, classes
-
-    def _recover_classes(self, targets):
-        """
-        TODO
-        """
-        # Cast class labels back to the original classes
-        y = np.copy(targets)
-        return np.array([self._classes[int(i)] for i in y])
-
-    ###########################################################################
-    # Auxiliary private methods used internally by this model
-    ###########################################################################
 
     def _minimize_crossentropy(self, X, y, max_iter=10000, tol=0.01, verbose='warn'):
         """Minimizes the Cross-Entropy Loss objective w.r.t. the weights
