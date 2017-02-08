@@ -94,8 +94,9 @@ class BayesPriorTL(TransferLearningBase):
         self._task_models = [] # Reset models already stored in this instance before cloning
         self._task_models = [self.clone() for i in range(n_tasks)]
         # Start prior training
-        iter = 0
-        for iter in range(self.max_prior_iter):
+        it = 0
+        print(self.max_prior_iter)
+        for it in range(self.max_prior_iter):
             prev_prior = copy.deepcopy(self.get_prior())
             # Train task-specific models
             lst_weights = []
@@ -134,13 +135,13 @@ class BayesPriorTL(TransferLearningBase):
                     model.set_params(lam=lam)
             end = time.time()
             vb.pyout('[{}] Prior Iteration {} ({}s); Convergence: {}; lambda: {}; mean loss: {}'.format(
-                type(self).__name__, iter, round(end - start, 1), diff, self.lam, str(round(np.mean(lst_loss), 4))
+                type(self).__name__, it, round(end - start, 1), diff, self.lam, str(round(np.mean(lst_loss), 4))
             ), lvl=verbose)
             if diff <= self.prior_conv_tol:
                 break
         self.set_weights(None)
         self.set_prior(prior)
-        self._num_iters = iter
+        self._num_iters = it
         return self
 
     ### Abstract interfaces to be implemented by inheriting models ###
