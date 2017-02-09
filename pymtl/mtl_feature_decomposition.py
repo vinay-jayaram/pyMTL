@@ -15,24 +15,33 @@ class FeatureDecompositionModel(BayesPriorTL):
     TODO
     """
     
-    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, lam_style=None, type='linear',
+    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, 
+                 lam=1, lam_style=None, Type='linear',
                  max_fd_iter=100, fd_conv_tol=1e-3):
         """
         TODO
         """
-        super(FeatureDecompositionModel, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style)
-        self.type = type
-        if type == 'linear':
-            self.spatial_model = BayesRegression(is_classifier=True,
-                max_prior_iter=max_prior_iter, prior_conv_tol=prior_conv_tol, lam=lam, lam_style=lam_style)
+        super(FeatureDecompositionModel, self).__init__(max_prior_iter, 
+                                                        prior_conv_tol, lam, lam_style)
+        self.Type = Type
+        if Type == 'linear':
+            self.spatial_model = BayesRegressionClassifier(
+                max_prior_iter=max_prior_iter, 
+                prior_conv_tol=prior_conv_tol, 
+                lam=lam, 
+                lam_style=lam_style)
             self.spectral_model = self.spatial_model.clone()
-        elif type == 'logistic':
-            self.spatial_model = BayesLogisticRegression(
-                max_prior_iter=max_prior_iter, prior_conv_tol=prior_conv_tol, lam=lam, lam_style=lam_style,
-                optim_algo='gd', pred_threshold=0.5)
+        elif Type == 'logistic':
+            self.spatial_model = BayesLogisticClassifier(
+                max_prior_iter=max_prior_iter, 
+                prior_conv_tol=prior_conv_tol, 
+                lam=lam, 
+                lam_style=lam_style,
+                optim_algo='gd', 
+                pred_threshold=0.5)
             self.spectral_model = self.spatial_model.clone()
         else:
-            raise ValueError('Given type {} unknown'.format(type))
+            raise ValueError('Given type {} unknown'.format(Type))
         self.max_fd_iter = max_fd_iter
         self.fd_conv_tol = fd_conv_tol
 
@@ -46,7 +55,7 @@ class FeatureDecompositionModel(BayesPriorTL):
                              samples ({}) in the target vector'.format(features.shape[0],
                                                                        targets.shape[0]))
         # Setup prior if not already done
-        if self.get_prior()[0] is None and self.get_prior()[1] is None:
+        if self.get_prior()[0] is None or self.get_prior()[1] is None:
             self.init_model(features.shape, targets.shape)
         # Setup current parameters
         self.spatial_model.set_params(lam=self.lam)
