@@ -6,15 +6,15 @@ from sklearn import covariance
 from pymtl.interfaces.mtl_bayesian_prior_models import BayesPriorTL
 from pymtl.misc import numerics
 
-__author__ = "Karl-Heinz Fiebig"
+__author__ = "Karl-Heinz Fiebig, Vinay Jayaram"
 __copyright__ = "Copyright 2017"
 
-class SpatioTemporalBayesRegression(object):
+class SpatioTemporalBayesRegression(BayesPriorTL):
     """
     TODO
     """
 
-    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-9, lam=1, lam_style='ML', target_rank=5):
+    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-6, lam=1, lam_style='ML', target_rank=8):
         """
         TODO
         lam_style routines are not implemented yet
@@ -38,9 +38,8 @@ class SpatioTemporalBayesRegression(object):
         labels
         """
         n_tasks = len(lst_X)
-        # Check if model has to be initialized
-        if self._weights is None:
-            self.init_model(lst_X[0].shape[1:])
+        # re-initialize model
+        self.init_model(lst_X[0].shape[1:])
         for iter in range(self.max_prior_iter):
             old_weights = self._weights
             lst_weights = []
@@ -53,7 +52,7 @@ class SpatioTemporalBayesRegression(object):
             self._update_prior(lst_weights)
             self._weights = self._prior_mu
             # Compute prior errors, weight matrix tank and convergence status
-            errors = [self.score(lst_X[task_idx], lst_y[task_idx]) for task_idx in range(n_tasks)]
+            errors = [self.loss(lst_X[task_idx], lst_y[task_idx]) for task_idx in range(n_tasks)]
             rank = np.linalg.matrix_rank(numerics.unvech(self._prior_mu, norm_conserved=False))
             conv = np.sum(np.abs(self._weights - old_weights) < self.prior_conv_tol)
             print('[Iteration {}/{}] Mean prior loss: {}; prior mean rank: {}; converged: {}/{}'.format(
@@ -79,7 +78,7 @@ class SpatioTemporalBayesRegression(object):
                                         1.0/self.lam * covX.dot(y) + self._prior_mu)[0]
         #self._weights = self._reduce_weight_rank(self._weights)
 
-    def score(self, X, y):
+    def loss(self, X, y):
         """
         TODO
         Squared loss
@@ -87,8 +86,8 @@ class SpatioTemporalBayesRegression(object):
         y_pred = self.predict(X)
         diff = (y_pred - y)[:, np.newaxis]
         loss = diff.T.dot(diff)[0, 0]
-        reg = self.lam * self._weights.T.dot(self._weights)[0, 0]
-        return loss + reg
+        #reg = self.lam * self._weights.T.dot(self._weights)[0, 0]
+        return loss #+ reg
 
     def predict(self, X):
         """
@@ -101,6 +100,9 @@ class SpatioTemporalBayesRegression(object):
         # Compute to half-vectorized covariance features and regress labels
         X = self._to_cov_features(X)
         return X.dot(self._weights).flatten()
+
+    def score(self,X, y):
+        return np.mean(np.sign(self.predict(X)) == y)
 
     def init_model(self, data_dim):
         d = data_dim[0]
@@ -134,12 +136,14 @@ class SpatioTemporalBayesRegression(object):
         # Unvectorize and approximate weights with low-rank matrix
         W = numerics.unvech(w, norm_conserved=False)
         lam = 0.0
-        step_size = 0.001
+        step_size = 0.1
         Z = W
         while np.linalg.matrix_rank(Z) > self.target_rank and lam <= 1.0:
             Z = numerics.complete_matrix(W, lam=lam, beta=1e100)
             lam = lam + step_size
-            print np.linalg.matrix_rank(Z)
+            print(np.linalg.matrix_rank(Z))
+        # print if Z is symmetric
+        print('Symmetric: {}'.format((Z ==Z.T).all()))
         # Vectorize weights again and return them
         return numerics.vech(Z, conserve_norm=False)[:, np.newaxis]
 

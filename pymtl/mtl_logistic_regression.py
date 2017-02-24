@@ -21,7 +21,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
     Class that implements a logostic classifier with Gaussian prior regularization
     """
     
-    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, lam_style=None, optim_algo='gd', pred_threshold=0.5):
+    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, lam_style='ML', optim_algo='gd', pred_threshold=0.5):
         """
         TODO
         """
@@ -104,11 +104,12 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         err = self._cross_entropy_error(X, y, w=w)
         return err
 
-    def set_prior(self, prior):
+    @BayesRegressionClassifier.prior.setter
+    def prior(self, prior):
         """
         TODO
         """
-        self._prior = prior
+        self._attr_prior = prior
         self._invSigma = np.linalg.inv(self._prior.Sigma)
 
     ###########################################################################

@@ -5,6 +5,13 @@ from __future__ import division
 import numpy as np
 from sklearn import covariance
 from abc import ABCMeta, abstractmethod
+import copy
+from pymtl.misc import numerics
+import pdb
+import pymanopt.manifolds as Manifolds
+from pymanopt import Problem
+import pymanopt.solvers as solvers
+import autograd.numpy as autonp
 
 __author__ = "Karl-Heinz Fiebig"
 __copyright__ = "Copyright 2017"
@@ -99,249 +106,159 @@ class GaussianParams(PriorParamsInterface):
         self.diag_eps = 0.1*np.mean(np.abs(np.linalg.eig(Sigma)[0])) # TODO
         return Sigma + self.diag_eps*self._id
 
-class SKGaussianParams(PriorParamsInterface):
+class SKGaussianParams(GaussianParams):
     """
     TODO
     """
 
-    def __init__(self, dim, estimator='EmpiricalCovariance', init_mean_val=0, init_var_val=1):
+    def __init__(self, dim, estimator='OAS', **kwargs):
         """
         TODO
         """
-        self.mu = init_mean_val * np.ones((dim, 1))
-        self.Sigma = init_var_val * np.eye(dim)
-        self._id = np.eye(dim)
+        super(SKGaussianParams, self).__init__(dim, **kwargs)
         if estimator == 'EmpiricalCovariance':
-            self._estimator = covariance.EmpiricalCovariance()
+            self._estimator = covariance.EmpiricalCovariance(assume_centered=True)
         elif estimator == 'LedoitWolf':
-            self._estimator = covariance.LedoitWolf()
+            self._estimator = covariance.LedoitWolf(assume_centered=True)
         elif estimator == 'MinCovDet':
-            self._estimator = covariance.MinCovDet()
+            self._estimator = covariance.MinCovDet(assume_centered=True)
         elif estimator == 'OAS':
-            self._estimator = covariance.OAS()
+            self._estimator = covariance.OAS(assume_centered=True)
         elif estimator == 'ShrunkCovariance':
-            self._estimator = covariance.ShrunkCovariance()
+            self._estimator = covariance.ShrunkCovariance(assume_centered=True)
         else:
             raise ValueError('Unknown estimator: {}'.format(estimator))
-
-    def update_params(self, samples):
-        """
-        TODO
-        """
-        self.mu = self.estimate_mean(samples)
-        self.Sigma = self.estimate_cov(samples, self.mu)
-
-    def diff(self, other):
-        """
-        TODO
-        """
-        if not isinstance(other, SKGaussianParams):
-            raise ValueError('Given instance is not of type {}'.format(type(self)))
-        d1 = np.abs(self.mu - other.mu)
-        d2 = np.abs(self.Sigma - other.Sigma)
-        return np.sum(d1) + np.sum(d2)
-
-    def estimate_mean(self, samples):
-        """
-        TODO
-        """
-        d = samples[0].shape[0]
-        mu = np.zeros((d, 1))
-        for t in range(len(samples)):
-            mu = mu + samples[t]
-        return (1.0/len(samples))*mu
 
     def estimate_cov(self, samples, mean):
         """
         TODO
         """
-        self._estimator.fit(np.squeeze(np.array(samples)))
+        samples = np.squeeze(np.array(samples)) - mean.T
+        self._estimator.fit(samples)
         #self.diag_eps = 0.1*np.mean(np.abs(np.linalg.eig(self._estimator.covariance_)[0])) # TODO
         return self._estimator.covariance_ # + self.diag_eps*self._id
 
 
-class MatrixGaussianParams(PriorParamsInterface):
+class LowRankGaussianParams(SKGaussianParams):
     """
-    TODO
+    Interface that implements a trace penalty on the prior mean, which results in a different mean update method.
     """
 
-    def __init__(self, dim, init_mean_val=0, init_var_val=1):
+    def __init__(self, dim, nu=1, conv_tol=1e-4, max_its=50, k=5, **kwargs):
         """
         TODO
         """
-        self.Mu = init_mean_val * np.ones(dim)
-        self.Sigma_r = init_var_val * np.eye(dim[0])
-        self.Sigma_c = init_var_val * np.eye(dim[1])
-        self._id_r = np.eye(dim[0])
-        self._id_c = np.eye(dim[1])
+        super(LowRankGaussianParams,self).__init__(dim, **kwargs)
+        self.nu = nu
+        self.conv_tol = conv_tol
+        self.max_its = max_its
+        n = int((-1.0+np.sqrt(1+8*dim))/2)
+        self.manifold = Manifolds.PSDFixedRank(n,k)
+        self.E = numerics.generate_elimination_matrix(n)
+        self.D = numerics.generate_duplication_matrix(n)
+        self.Tnn = numerics.generate_vectranspose_matrix(n,n)
+        self.lastpt = self.manifold.rand()
 
     def update_params(self, samples):
         """
-        TODO
-        (estimate according to: AN EXPECTATION-MAXIMIZATION ALGORITHM FOR THE MATRIX
-        NORMAL DISTRIBUTION,  HUNTER GLANZ AND LUIS CARVALHO)
+        Given samples, iteratively update mu and sigma until convergence
         """
-        max_iter = 1000
-        tol = 1e-4
-        self.Mu = self.estimate_mean(samples)
-        for iter in range(max_iter):
-            Sigma_r_prev = self.Sigma_r
-            Sigma_c_prev = self.Sigma_c
-            self.Sigma_r = self.estimate_cov_r(samples, self.Mu, self.Sigma_c)
-            self.Sigma_r = 1.0/(self.Sigma_r[0, 0]) * self.Sigma_r
-            self.Sigma_c = self.estimate_cov_c(samples, self.Mu, self.Sigma_r)
-            self.Sigma_c = 1.0/(self.Sigma_c[0, 0]) * self.Sigma_c
-            # Normalize estimates by top left entry
-            #self.Sigma_c = 1.0/(self.Sigma_c[0, 0]) * self.Sigma_c
-            #self.Sigma_r = 1.0/(self.Sigma_r[0, 0]) * self.Sigma_r
-            # Estimate overall covariance scale
-            #beta = self._estimate_cov_rcale(samples, self.Mu, self.Sigma_r, self.Sigma_c)
-            # Normalize covariances by overall scale
-            #self.Sigma_c = sigma2 * self.Sigma_c
-            #self.Sigma_r = sigma2 * self.Sigma_r
-            # Check for convergence
-            if np.allclose(self.Sigma_r, Sigma_r_prev, atol=tol) and np.allclose(self.Sigma_c, Sigma_c_prev, atol=tol):
-                break
-        #beta = self._estimate_cov_rcale(samples, self.Mu, self.Sigma_r, self.Sigma_c)
-        #self.Sigma_r = beta*self.Sigma_r
-        #print beta
-        #print self.Sigma_c
-        #exit(0)
+        diff = 1e10
+        it = 0
+        while diff > self.conv_tol and it < self.max_its:
+            prev_prior = copy.deepcopy(self)
+            #pdb.set_trace()
+            self.mu = self.estimate_mean(samples, self.Sigma)
+            self.Sigma = self.estimate_cov(samples, self.mu)
+            diff = self.diff(prev_prior)
+            it += 1
+            print('Prior iteration {}, difference {}'.format(it, diff))
+        U = numerics.unvech(self.mu, self.D)
+        print('Rank of prior matrix: {}/{}'.format(np.linalg.matrix_rank(U),U.shape[0]))
 
     def diff(self, other):
         """
         TODO
         """
-        if not isinstance(other, MatrixGaussianParams):
+        if not isinstance(other, LowRankGaussianParams):
             raise ValueError('Given instance is not of type {}'.format(type(self)))
-        d1 = np.abs(self.Mu - other.Mu)
-        d2 = np.abs(self.Sigma_r - other.Sigma_r)
-        d3 = np.abs(self.Sigma_c - other.Sigma_c)
-        return np.sum(d1) + np.sum(d2) + np.sum(d3)
+        #return self.manifold.dist(self.lastpt, other.lastpt)
+        return super(LowRankGaussianParams,self).diff(other)
 
-    def estimate_mean(self, samples):
+    def estimate_mean_explicit(self, samples, Sigma):
         """
-        TODO
+        Estimate mean given trace norm penalty (and lemma from Farquhar) 
+        [not sure if makes sense and not working...]
         """
-        mu = np.zeros(samples[0].shape)
-        for samp in samples:
-            mu = mu + samp
-        return (1.0/len(samples))*mu
+        Sinv = np.linalg.inv(Sigma)
+        E = self.E
+        nu = self.nu
+        mu_hat = np.sum(np.asarray(samples).squeeze(),axis=0)
+        n = len(samples)
+        Tnn = self.Tnn
+        def cost(L):
+            vecL = np.reshape(L,(-1,1))
+            vecLLT = np.reshape(np.dot(L,L.T),(-1,1))
+            costsum = 0
+            for x in samples:
+                dx = x - E.dot(vecLLT)
+                costsum += np.dot(dx.T, np.dot(Sinv,dx))
+            costsum *= 0.5
+            costsum += nu*np.dot(vecL.T,vecL)
+            return costsum
+            
+        def d_cost(L):
+            vecL = np.reshape(L,(-1,1))
+            vecLLT = np.reshape(np.dot(L,L.T),(-1,1))
+            T = -Sinv.dot(mu_hat.reshape((-1,1))) + n*Sinv.dot(E.dot(vecLLT))
+            D_vecLLT = ( Tnn + np.eye(len(vecLLT))).dot(np.kron(L,np.eye(L.shape[0])))
+            return (T.T.dot(E.dot(D_vecLLT)) + nu*vecL.T).reshape(L.shape)
 
-    def estimate_cov_r(self, samples, mean, cov_c):
-        """
-        TODO
-        each samples: p x q
-        cov_r: p x p
-        cov_c: q x q
-        """
-        invCov_c = np.linalg.inv(cov_c)
-        p = samples[0].shape[0]
-        q = samples[0].shape[1]
-        cov_r = np.zeros((p, p))
-        for samp in samples:
-            zm = samp - mean
-            cov_r = cov_r + zm.dot(invCov_c.dot(zm.T))
-        #diag_eps = max(1e-4, np.min(np.abs(np.linalg.eig(cov_r)[0])))
-        return 1.0/(q*len(samples)) * cov_r #+ diag_eps*self._id_r
+        solver = solvers.ConjugateGradient()
+        prob = Problem(manifold=self.manifold,cost=cost, egrad=d_cost)
+        
+        Lopt = solver.solve(prob)
+        
+        return E.dot(np.reshape(Lopt.dot(Lopt.T),(-1,1)))
 
-    def estimate_cov_c(self, samples, mean, cov_r):
-        """
-        TODO
-         each samples: p x q
-         cov_r: p x p
-         cov_c: q x q
-         """
-        invcov_r = np.linalg.inv(cov_r)
-        p = samples[0].shape[0]
-        q = samples[0].shape[1]
-        cov_c = np.zeros((q, q))
-        # Compute covariance
-        for samp in samples:
-            zm = samp - mean
-            cov_c = cov_c + zm.T.dot(invcov_r.dot(zm))
-        # Scale estimate
-        #diag_eps = max(1e-4, np.min(np.abs(np.linalg.eig(cov_c)[0])))
-        return 1.0/(p*len(samples)) * cov_c# + diag_eps*self._id_c
+    def estimate_mean(self, samples, Sigma):
+        '''
+        Function that just does autodiff and a straight trace constraint"
+        '''
+        E = self.E
+        nu = self.nu
+        Sinv = np.linalg.inv(Sigma)
+        def cost(M):
+            W = autonp.dot(M,autonp.transpose(M))
+            vecW = autonp.reshape(W,(-1,1))
+            diff = [s - autonp.dot(E,vecW) for s in samples]
+            c  = 0
+            for d in diff:
+                c += 0.5 * autonp.dot(autonp.transpose(d),autonp.dot(Sinv,d))
+            c += autonp.linalg.norm(M, ord='fro')
+            return c
+        
+        solver = solvers.SteepestDescent()
+        prob = Problem(manifold=self.manifold,cost=cost,verbosity=1)
+        
+        V = solver.solve(prob, x=self.lastpt)
+        self.lastpt = V
+        Wopt = V.dot(V.T)
+        assert((Wopt == Wopt.T).all()) #force the result to be symmetric
+        return numerics.vech(Wopt,self.E).reshape((-1,1))
 
-    def _estimate_cov_rcale(self, samples, mean, cov_r, cov_c):
-        invKronSigma = np.linalg.inv(np.kron(cov_c, cov_r)) # or swith kronecker operands?
-        p = samples[0].shape[0]
-        q = samples[0].shape[1]
-        beta = 0
-        for samp in samples:
-            zm = (samp - mean).T.flatten(order='C') # Vectorized zero mean data
-            beta = beta + zm.T.dot(invKronSigma.dot(zm))
-        beta = 1.0/(p*q*len(samples)) * beta
-        return beta
+class TemporalGP(SKGaussianParams):
+    '''
+    Interface that maps inputs to FIR filters and reprojects before parameter updates
+    '''
 
-class MatrixGaussianKronParams(PriorParamsInterface):
-    """
-    Multivariate equivalent to the Matrix Gaussian. In contrast to MatrixGaussianParams, this
-    version does not have to perform iterative updates between the row- and column covariance.
-    Instead, the kronecker product of the covariances is estimated in a standard multivariate
-    fashion. However, the individual row- and column covariances can not be restored as the
-    Kronecker product is not revertable.
-    """
-
-    def __init__(self, dim, estimator='EmpiricalCovariance', init_mean_val=0, init_var_val=1):
-        """
-        TODO
-        """
-        self.Mu = init_mean_val * np.ones(dim)
-        self.Mu_vec = self.Mu.flatten(order='F').reshape((dim[0]*dim[1], 1))
-        self.Sigma_kron = init_var_val * np.kron(np.eye(dim[1]), np.eye(dim[0]))
-        self._id_rc = np.eye(dim[0]*dim[1])
-        # Setup estimator
-        if estimator == 'EmpiricalCovariance':
-            self._estimator = covariance.EmpiricalCovariance()
-        elif estimator == 'LedoitWolf':
-            self._estimator = covariance.LedoitWolf()
-        elif estimator == 'MinCovDet':
-            self._estimator = covariance.MinCovDet()
-        elif estimator == 'OAS':
-            self._estimator = covariance.OAS()
-        elif estimator == 'ShrunkCovariance':
-            self._estimator = covariance.ShrunkCovariance()
-        else:
-            raise ValueError('Unknown estimator: {}'.format(estimator))
+    def __init__(self, dim, **kwargs):
+        super(TemporalGP,self).__init__(dim,**kwargs)
 
     def update_params(self, samples):
-        """
-        TODO
-        (estimate according to: AN EXPECTATION-MAXIMIZATION ALGORITHM FOR THE MATRIX
-        NORMAL DISTRIBUTION,  HUNTER GLANZ AND LUIS CARVALHO)
-        """
-        self.Mu = self.estimate_mean_vec(samples)
-        self.Mu_vec = self.Mu.flatten(order='F').reshape(self.Mu_vec.shape)
-        samples_vec = [samp.flatten(order='F').reshape(self.Mu_vec.shape) for samp in samples]
-        self.Sigma_kron = self.estimate_cov_kron(samples_vec, self.Mu_vec)
-
-    def diff(self, other):
-        """
-        TODO
-        """
-        if not isinstance(other, MatrixGaussianKronParams):
-            raise ValueError('Given instance is not of type {}'.format(type(self)))
-        d1 = np.abs(self.Mu_vec - other.Mu_vec)
-        d2 = np.abs(self.Sigma_kron - other.Sigma_kron)
-        return np.sum(d1) + np.sum(d2)
-
-    def estimate_mean_vec(self, samples):
-        """
-        TODO
-        """
-        mu = np.zeros(samples[0].shape)
-        for samp in samples:
-            mu = mu + samp
-        return (1.0/len(samples))*mu
-
-    def estimate_cov_kron(self, samples, mean):
-        """
-        TODO
-        each samples: p x q
-        cov_r: p x p
-        cov_c: q x q
-        """
-        self._estimator.fit(np.squeeze(np.array(samples)))
-        return self._estimator.covariance_
+        b = [numerics.solve_fir_coef(s) for s in samples]
+        super(TemporalGP,self).update_params(
+            [np.asarray([f(*c) for f in flist]).reshape((c.shape[0],1)) for c, flist in b]
+        )
+        
+        self.meanfilter = numerics.solve_fir_coef(self.mu)[0]

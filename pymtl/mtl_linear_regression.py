@@ -2,8 +2,9 @@
 
 import numpy as np
 from pymtl.interfaces.mtl_bayesian_prior_models import BayesPriorTL
-from pymtl.interfaces.mtl_priors import GaussianParams, SKGaussianParams
+import pymtl.interfaces.mtl_priors as priors
 from sklearn import metrics
+from pymtl.misc import numerics 
 
 __author__ = "Vinay Jayaram, Karl-Heinz Fiebig"
 __copyright__ = "Copyright 2017"
@@ -14,7 +15,8 @@ class BayesRegression(BayesPriorTL):
     Implements standard L2-loss linear regression with optional prior learning.
     """
 
-    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, lam_style='ML'):
+    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, 
+                 lam_style='ML', estimator='OAS'):
         """
         max_prior_iter: see mtl_bayesian_prior_models
         prior_conv_tol: see mtl_bayesian_prior_models
@@ -23,10 +25,9 @@ class BayesRegression(BayesPriorTL):
         """
         super(BayesRegression, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style)
         self._classes = None
-        self._prior = None
-        self._weights = None
+        self.estimator = estimator
 
-    def fit(self, features, targets):
+    def fit(self, features, targets, lam=None):
         """
         Computes standard linear regression solution given current prior. 
         """
@@ -38,13 +39,15 @@ class BayesRegression(BayesPriorTL):
         X_train = features
 
         y_train = targets.reshape(len(targets), 1)
-
+        
+        if lam is None:
+            lam = self.lam
         # Setup prior if not already done
-        if self._prior is None:
+        if self.prior is None:
             self.init_model(X_train.shape, y_train.shape)
-        covX = self._prior.Sigma.dot(X_train.T)
-        self._weights = np.linalg.lstsq(1.0/self.lam*covX.dot(X_train) + np.eye(X_train.shape[1]),
-                                        (1.0/self.lam*covX.dot(y_train)) + self._prior.mu)[0]
+        covX = self.prior.Sigma.dot(X_train.T)
+        self.weights = np.linalg.lstsq(1.0/lam*covX.dot(X_train) + np.eye(X_train.shape[1]),
+                                        (1.0/lam*covX.dot(y_train)) + self.prior.mu)[0]
         return self
 
 
@@ -53,10 +56,10 @@ class BayesRegression(BayesPriorTL):
         Returns predicted values given features
         """
         # TODO arg checks
-        if self._weights is None:
-            w = self._prior.mu
+        if self.weights is None:
+            w = self.prior.mu
         else:
-            w = self._weights
+            w = self.weights
         pred = features.dot(w)
         return pred
 
@@ -73,55 +76,47 @@ class BayesRegression(BayesPriorTL):
         """
         X = features
         y = targets.reshape(len(targets), 1)
-        if self._weights is None:
-            w = self._prior.mu
+        if self.weights is None:
+            w = self.prior.mu
         else:
-            w = self._weights
+            w = self.weights
         pred = X.dot(w)
         err = np.sum(np.power(y-pred, 2)) #/ len(y)
         return err
 
-    def init_model(self, dim, dim_targets, init_val=0, norm_style='OAS'):
+    def init_model(self, dim, dim_targets, init_val=0):
         """
         Initialize the prior given an initial value
         """
-        prior = SKGaussianParams(dim[1], estimator='OAS', init_mean_val=init_val, init_var_val=1)
-        self.set_prior(prior)
-        self._weights = np.copy(self._prior.mu)
+        prior = priors.SKGaussianParams(dim[1], estimator=self.estimator, 
+                                 init_mean_val=init_val, init_var_val=1)
+        self.prior = prior
+        self.weights = np.copy(self.prior.mu)
 
-    def get_weights(self):
+    @BayesPriorTL.weights.getter
+    def weights(self):
         """
         TODO
         """
-        if self._weights is not None:
-            return self._weights
+        if self.weights is not None:
+            return self._attr_weights
         else:
-            return self._prior.mu
+            return self.prior.mu
 
-    def set_weights(self, weights):
+    @BayesPriorTL.weights.setter
+    def weights(self, weights):
         """
         TODO
         """
         if weights is None:
-            self._weights = None
+            self._attr_weights = None
         else:
-            self._weights = np.copy(weights)
-
-    def get_prior(self):
-        """
-        TODO
-        """
-        return self._prior
-
-    def set_prior(self, prior):
-        """
-        TODO
-        """
-        self._prior = prior
+            self._attr_weights = np.copy(weights)
 
 class BayesRegressionClassifier(BayesRegression):
 
-    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, lam_style='ML'):
+    def __init__(self, max_prior_iter=100, prior_conv_tol=1e-4, lam=1, 
+                 lam_style='ML', estimator='OAS'):
         """
         is_classifier:  converts to internal label representation if true
         max_prior_iter: see mtl_bayesian_prior_models
@@ -131,7 +126,8 @@ class BayesRegressionClassifier(BayesRegression):
         TODO: Allow for non {-1,1} internal labelling
         """
         self._set_internal_classes([-1,1])
-        super(BayesRegressionClassifier, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style)
+        super(BayesRegressionClassifier, self).__init__(max_prior_iter, prior_conv_tol, lam, 
+                                                        lam_style, estimator)
 
 
     def fit(self, features, targets):
@@ -189,3 +185,77 @@ class BayesRegressionClassifier(BayesRegression):
         """
         
         return metrics.accuracy_score(self.predict(features), targets.flatten())
+
+class SpatiotemporalRegressionClassifier(BayesRegressionClassifier):
+    
+    def __init__(self, nu=1, prior_rank=5, max_prior_conv_iter=10, max_prior_iter=100,
+                 prior_conv_tol=1e-4, lam=1, lam_style='ML', estimator='OAS'):
+        """
+        is_classifier:  converts to internal label representation if true
+        max_prior_iter: see mtl_bayesian_prior_models
+        prior_conv_tol: see mtl_bayesian_prior_models
+        lam:            see mtl_bayesian_prior_models
+        lam_style:      see mtl_bayesian_prior_models
+        TODO: Allow for non {-1,1} internal labelling
+        """
+        super(SpatiotemporalRegressionClassifier, self).__init__(max_prior_iter,
+                                                                 prior_conv_tol, 
+                                                                 lam,
+                                                                 lam_style,
+                                                                 estimator)
+        self.nu = nu
+        self.prior_rank = prior_rank
+        self.max_prior_conv_iter = max_prior_conv_iter
+
+    def fit(self, features, targets):
+        if features.ndim == 3:
+            features = self._to_cov_features(features)
+        super(SpatiotemporalRegressionClassifier, self).fit(features, targets)
+
+    def _to_cov_features(self, X):
+        n_samples = X.shape[0]
+        if self.weights is None:
+            self.init_model(X.shape)
+        features = np.empty((n_samples, len(self.weights)))
+        for idx in range(n_samples):
+            X_s = np.squeeze(X[idx,...])
+            #self._cov_estimator.fit(X_s.T)
+            #cov = self._cov_estimator.covariance_
+            cov = X_s.dot(X_s.T) / (n_samples-1)
+            features[idx, :] = numerics.vech(cov)
+        return features
+
+    def init_model(self, dim, dim_targets=0, init_val=0):
+        vech_dim = dim[1]*(dim[1]+1)/2
+        #prior = LowRankGaussianParams(vech_dim, nu=self.nu, 
+        #                              estimator=self.estimator, 
+        #                              k=self.prior_rank, 
+        #                              max_its=self.max_prior_conv_iter)
+        prior = priors.SKGaussianParams(vech_dim, estimator=self.estimator,
+                                 init_mean_val=init_val, init_var_val=1)
+        self.prior = prior
+        self.weights = np.copy(self.prior.mu)
+
+    def predict(self,features):
+        if features.ndim == 3:
+            features = self._to_cov_features(features)
+        return super(SpatiotemporalRegressionClassifier, self).predict(features)
+
+
+    def loss(self, features, targets):
+        if features.ndim == 3:
+            features = self._to_cov_features(features)
+        return super(SpatiotemporalRegressionClassifier, self).loss(features, targets)
+
+class TemporalBRC(BayesRegressionClassifier):
+    
+    def __init__(self,max_prior_iter=100, prior_conv_tol=1e-4, lam=1,
+                 lam_style='ML', estimator='OAS'):
+        super(TemporalBRC, self).__init__(max_prior_iter, prior_conv_tol, lam,
+                                          lam_style, estimator)
+
+    def init_model(self, dim, dim_targets, init_val=0):
+        prior = priors.SKGaussianParams(dim[1], estimator=self.estimator, init_mean_val=init_val,
+                           init_var_val=1)
+        self.prior = prior
+        self.weights = np.copy(self.prior.mu)

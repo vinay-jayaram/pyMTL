@@ -71,6 +71,8 @@ class BayesPriorTL(TransferLearningBase):
         self.prior_conv_tol = prior_conv_tol
         self.lam = lam
         self.lam_style = lam_style
+        self._attr_prior = None
+        self._attr_weights = None
 
         # Init other attributes
         self._task_models = []
@@ -97,7 +99,7 @@ class BayesPriorTL(TransferLearningBase):
         it = 0
         print(self.max_prior_iter)
         for it in range(self.max_prior_iter):
-            prev_prior = copy.deepcopy(self.get_prior())
+            prev_prior = copy.deepcopy(self.prior)
             # Train task-specific models
             lst_weights = []
             lst_scores = []
@@ -105,14 +107,14 @@ class BayesPriorTL(TransferLearningBase):
             start = time.time()
             for idx, model in enumerate(self._task_models):
                 # Train model with current prior
-                model.set_prior(self.get_prior())
+                model.prior = self.prior
                 model.fit(lst_features[idx], lst_targets[idx])
                 # Gather results in the appropriate list
-                lst_weights.append(model.get_weights())
+                lst_weights.append(model.weights)
                 lst_scores.append(model.score(lst_features[idx], lst_targets[idx]))
                 lst_loss.append(model.loss(lst_features[idx], lst_targets[idx]))
             # Update priors in this model from task-specific weights
-            prior = self.get_prior()
+            prior = self.prior
             diff = 0
             if isinstance(prior, list):
                 for p_idx in range(len(prior)):
@@ -124,6 +126,7 @@ class BayesPriorTL(TransferLearningBase):
                 if not isinstance(prior, PriorParamsInterface):
                     raise ValueError('Given instance is not of type PriorParamsInterface')
                 prior.update_params(lst_weights)
+                #import pdb; pdb.set_trace()
                 diff += prior.diff(prev_prior)
             # Update lambda value according to desired method
             if self.lam_style == 'ML':
@@ -139,8 +142,8 @@ class BayesPriorTL(TransferLearningBase):
             ), lvl=verbose)
             if diff <= self.prior_conv_tol:
                 break
-        self.set_weights(None)
-        self.set_prior(prior)
+        self.weights = None
+        self.prior = prior
         self._num_iters = it
         return self
 
@@ -181,30 +184,30 @@ class BayesPriorTL(TransferLearningBase):
         """
         pass
 
-    @abstractmethod
-    def get_weights(self):
+    @property
+    def weights(self):
         """
         Returns the weight parameters used by this model.
         """
-        pass
+        return self._attr_weights
 
-    @abstractmethod
-    def set_weights(self, weights):
+    @weights.setter
+    def weights(self, newweights):
         """
         Returns the weight parameters used by this model.
         """
-        pass
+        self._attr_weights = newweights
 
-    @abstractmethod
-    def get_prior(self):
+    @property
+    def prior(self):
         """
         Returns the priors used by the model.
         """
-        pass
+        return self._attr_prior
 
-    @abstractmethod
-    def set_prior(self, prior):
+    @prior.setter
+    def prior(self, newprior):
         """
         Sets the priors used by the model.
         """
-        pass
+        self._attr_prior = newprior

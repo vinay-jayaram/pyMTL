@@ -4,7 +4,7 @@
 """Foobar."""
 
 import numpy as np
-from pymtl.interfaces.mtl_priors import MatrixGaussianParams, MatrixGaussianKronParams
+from pymtl.interfaces.mtl_matrix_priors import MatrixGaussianParams, MatrixGaussianKronParams
 from pymtl.interfaces.mtl_bayesian_prior_models import BayesPriorTL
 
 __author__ = "Karl-Heinz Fiebig"

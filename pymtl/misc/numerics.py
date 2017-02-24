@@ -4,20 +4,25 @@
 import numpy as np
 from sklearn.covariance import oas
 from pymtl.misc import verbose as vb
+import sympy 
+import scipy.optimize as optimize
 
 #from fancyimpute import SoftImpute, NuclearNormMinimization
 
-__author__ = "Karl-Heinz Fiebig"
+__author__ = "Karl-Heinz Fiebig, Vinay Jayaram"
 __copyright__ = "Copyright 2017"
 
 
-def complete_matrix(X, lam=1.0, beta=1, sigma=1, Z=None, max_iter=200, tol=1e-9, verbose=False):
+def complete_matrix(X, lam=1.0, beta=1, sigma=1, Z=None, max_iter=200, tol=1e-9, 
+                    initial_rank=None, verbose=False):
+    if initial_rank is None:
+        initial_rank = max(1, X.shape[0]*0.2)
     if verbose:
         vb.pyout('Original rank: {}'.format(np.linalg.matrix_rank(X)))
     if Z is None:
-        Z = low_rank_approx(X, r=int(max(1, X.shape[0]*0.1)))
+        Z = low_rank_approx(X, r=int(initial_rank))
     if verbose:
-        vb.pyout('Initial rank: {}'.format(np.linalg.matrix_rank(Z)))
+        vb.pyout('Initial rank of approximation: {}'.format(np.linalg.matrix_rank(Z)))
     U_X, d_X, V_X = np.linalg.svd(X)
     # Setup parameters
     lam = lam * np.max(d_X) * 0.999999999999
@@ -62,7 +67,7 @@ def low_rank_approx(X, r=1):
     """
     u, s, v = np.linalg.svd(X, full_matrices=False)
     Z = np.zeros((len(u), len(v)))
-    for i in xrange(r):
+    for i in range(r):
         Z += s[i] * np.outer(u.T[i], v[i])
     return Z
 
@@ -83,7 +88,7 @@ def unvec(v, cols_stacked=True):
         return v.reshape(d, d)
 
 
-def vech(X, stack_cols=True, conserve_norm=True):
+def vech_kh(X, stack_cols=True, conserve_norm=False):
     assert X.shape[0] == X.shape[1]
     # Scale off-diagonal indexes if norm has to be preserved
     d = X.shape[0]
@@ -112,7 +117,7 @@ def vech(X, stack_cols=True, conserve_norm=True):
     return tmp[triu_idx]
 
 
-def unvech(v, cols_stacked=True, norm_conserved=True):
+def unvech_kh(v, cols_stacked=True, norm_conserved=False):
     # Restore matrix dimension and add triangular
     v = v.flatten()
     d = int(0.5 * (np.sqrt(8 * len(v) + 1) - 1))
@@ -140,4 +145,100 @@ def unvech(v, cols_stacked=True, norm_conserved=True):
         X[np.tril_indices(d, -1)] /= np.sqrt(2)
     return X
 
+def generate_elimination_matrix(n):
+    n_vec = n**2
+    n_vech = int(n*(n+1)/2)
+    E = np.zeros((n_vech,n_vec))
+    n_curr = n
+    row = 0
+    col = 0
+    while n_curr > 0:
+        # add n keep columns
+        E[row:(row+n_curr),col:(col+n_curr)] = np.eye(n_curr);
+        row = row+n_curr; col = col+n_curr;
 
+        # add n-n_curr+1 zero columns
+        n_zero = n - n_curr+1;
+        col = col+n_zero;
+
+        # reduce n_curr
+        n_curr = n_curr - 1;
+    return E
+
+def generate_duplication_matrix(n):
+    n_vec = n**2;
+    n_vech = int(n*(n+1)/2)
+    D = np.zeros((n_vech,n_vec));
+    n_curr = n
+    row = 0
+    col = 0
+    while n_curr > 0:
+        # add n keep columns
+        D[row:(row+n_curr),col:(col+n_curr)] = np.eye(n_curr);
+
+        # for the 2-end dimensions ad the rest
+        for k in range(1,n_curr):
+            D[row+k,col+k*n] = 1;
+
+        row = row+n_curr
+        col = col+n_curr
+
+        # add n-n_curr+1 zero columns
+        n_zero = n - n_curr+1
+        col = col+n_zero;
+
+        # reduce n_curr
+        n_curr = n_curr - 1;
+
+    return D.T
+
+def generate_vectranspose_matrix(n, k):
+    '''
+    Don't want to figure out closed form so I'm doing it the dumb way.
+    Matrix that gives a permutation matrix that will give the vectorized transpose
+    of a given vectorized matrix. 
+    '''
+
+    # generate matrix of appropriate size with numbered entries 
+    indices = np.arange(n*k).reshape((n,k))
+    ind_vec = np.reshape(indices,(-1,1))
+    ind_T_vec = np.reshape(indices.T,(-1,1))
+    Tnk = np.zeros((n*k,n*k))
+    for i in range(n*k):
+        Tnk[i,np.where(ind_vec == ind_T_vec[i])] = 1
+    return Tnk
+
+def vech(X, E=None):
+    if E is None:
+        E = generate_elimination_matrix(X.shape[0])
+    vecX = X.flatten()
+    return E.dot(vecX).flatten()
+
+def unvech(x, D=None):
+    n = n = int((-1.0+np.sqrt(1+8*x.shape[0]))/2)
+    if D is None:
+        D = generate_duplication_matrix(n)
+    return D.dot(x).reshape((n,n))
+
+def solve_fir_coef(w):
+    '''
+    Solve for FIR coefficients given regression coefficients for autocovariance matrices
+    '''
+    ndim = len(w)
+    # strategy: start at the back and substitute up, then recursively calculate coefficients
+    b = sympy.symarray('b',ndim)
+    matb = sympy.Matrix(b)
+    eqns = [b[i:].T.dot(b[:(ndim-i)]) - w[i] for i in range(ndim)]
+    # generate vector function and jacobian
+    f = sympy.Matrix(eqns)
+    J_f = f.jacobian(matb)
+    # lambdify
+    F = sympy.lambdify(b, f)
+    J_F = sympy.lambdify(b ,J_f)
+
+    sol = optimize.root(lambda x: F(*x).ravel(),
+                        np.random.rand(len(w)),
+                        jac=lambda x: J_F(*x),
+                        method='lm')
+    #print(sol)
+    return sol.x/sol.x[0],[sympy.lambdify(b,b[i:].T.dot(b[:(ndim-i)])) for i in range(ndim)]
