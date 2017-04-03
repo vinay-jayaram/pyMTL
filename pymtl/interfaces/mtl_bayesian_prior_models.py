@@ -9,11 +9,18 @@ from abc import ABCMeta, abstractmethod
 from pymtl.interfaces.mtl_priors import PriorParamsInterface
 from pymtl.interfaces.mtl_base import TransferLearningBase
 from pymtl.misc import verbose as vb
+from joblib import Parallel, delayed
+import multiprocessing
 import time
 import copy
 
 __author__ = "Vinay Jayaram, Karl-Heinz Fiebig"
 __copyright__ = "Copyright 2017"
+
+def single_fit(model, X, Y, prior):
+        model.prior = prior
+        model.fit(X, Y)
+        return model.weights, model.score(X,Y), model.loss(X,Y)
 
 class FDGradientInterface(object):
     """
@@ -46,7 +53,7 @@ class BayesPriorTL(TransferLearningBase):
         """
         return self
 
-    def __init__(self, max_prior_iter, prior_conv_tol, lam, lam_style):
+    def __init__(self, max_prior_iter, prior_conv_tol, lam, lam_style, parallel):
         """Constructor for an instance of GaussianPriorTL.
 
         Abstract class constructor to setup the parameters for multi-task training of a
@@ -66,6 +73,11 @@ class BayesPriorTL(TransferLearningBase):
             lam (float):
                 The lambda value to trade-off between deviation from the prior and fitting
                 task-specific structure.
+
+            lam_style (str: 'ML' or ''):
+                Whether to use ML lambda estimation or leave it fixed
+            parallel (bool):
+                Attempt multiprocessing or not
         """
         self.max_prior_iter = max_prior_iter
         self.prior_conv_tol = prior_conv_tol
@@ -73,6 +85,7 @@ class BayesPriorTL(TransferLearningBase):
         self.lam_style = lam_style
         self._attr_prior = None
         self._attr_weights = None
+        self.parallel = parallel
 
         # Init other attributes
         self._task_models = []
@@ -95,10 +108,76 @@ class BayesPriorTL(TransferLearningBase):
         self.init_model(dim_features, dim_targets, init_val=0)
         self._task_models = [] # Reset models already stored in this instance before cloning
         self._task_models = [self.clone() for i in range(n_tasks)]
+        if not self.parallel:
+            print('Using serial approach to task updates')
+            self._multitask_update_serial(lst_features, lst_targets, verbose)
+        else:
+            print('Attempting parallel processing with {} cores'.format(multiprocessing.cpu_count()-1))
+            self._multitask_update_parallel(lst_features, lst_targets, 
+                                           verbose, multiprocessing.cpu_count()-1)
+        return self
+
+    def _multitask_update_parallel(self, lst_features, lst_targets, verbose, ncores):
+        '''
+        Multitask parallel update if appropriate thing is tweaked. 
+        '''
+        with Parallel(n_jobs=ncores) as PAR:
+            it = 0
+            while it < self.max_prior_iter:
+                prev_prior = copy.deepcopy(self.prior)
+                # Train task-specific models
+                lst_weights = []
+                lst_scores = []
+                lst_loss = []
+                start = time.time()
+                par_out = PAR(delayed(single_fit)(self._task_models[i],
+                                        lst_features[i],
+                                        lst_targets[i],
+                                        self.prior) for i in range(len(self._task_models)))
+                for w, s, l in par_out:
+                    lst_weights.append(w)
+                    lst_scores.append(s)
+                    lst_loss.append(l)
+                # Update priors in this model from task-specific weights
+                prior = self.prior
+                diff = 0
+                if isinstance(prior, list):
+                    for p_idx in range(len(prior)):
+                        if not isinstance(prior[p_idx], PriorParamsInterface):
+                            raise ValueError('Given instance is not of type PriorParamsInterface')
+                        prior[p_idx].update_params([weights[p_idx] for weights in lst_weights])
+                        diff += prior[p_idx].diff(prev_prior[p_idx])
+                else:
+                    if not isinstance(prior, PriorParamsInterface):
+                        raise ValueError('Given instance is not of type PriorParamsInterface')
+                    prior.update_params(lst_weights)
+                    #import pdb; pdb.set_trace()
+                    diff += prior.diff(prev_prior)
+                # Update lambda value according to desired method
+                if self.lam_style == 'ML':
+                    # Maximum-Likelihood estimate
+                    # TODO is this a general ML estimate or does this apply only to linear regression?
+                    lam = np.sum([len(X) for X in lst_features]) / (2*np.sum(lst_loss))
+                    self.set_params(lam=lam)
+                    for model in self._task_models:
+                        model.set_params(lam=lam)
+                end = time.time()
+                vb.pyout('[{}] Prior Iteration {} ({}s); Convergence: {:.2f}; lambda: {:.2f}; mean loss: {:.2f}'.format(
+                    type(self).__name__, it, round(end - start, 1), diff, self.lam, np.mean(lst_loss)
+                ), lvl=verbose)
+                if diff <= self.prior_conv_tol:
+                    break
+                it += 1          
+        self.weights = None
+        self.prior = prior
+        self._num_iters = it        
+    def _multitask_update_serial(self, lst_features, lst_targets, verbose):
+        '''
+        Serial MT update function
+        '''
         # Start prior training
         it = 0
-        print(self.max_prior_iter)
-        for it in range(self.max_prior_iter):
+        while it < self.max_prior_iter:
             prev_prior = copy.deepcopy(self.prior)
             # Train task-specific models
             lst_weights = []
@@ -137,15 +216,15 @@ class BayesPriorTL(TransferLearningBase):
                 for model in self._task_models:
                     model.set_params(lam=lam)
             end = time.time()
-            vb.pyout('[{}] Prior Iteration {} ({}s); Convergence: {}; lambda: {}; mean loss: {}'.format(
-                type(self).__name__, it, round(end - start, 1), diff, self.lam, str(round(np.mean(lst_loss), 4))
+            vb.pyout('[{}] Prior Iteration {} ({}s); Convergence: {:.2f}; lambda: {:.2f}; mean loss: {:.2f}'.format(
+                type(self).__name__, it, round(end - start, 1), diff, self.lam, np.mean(lst_loss)
             ), lvl=verbose)
             if diff <= self.prior_conv_tol:
                 break
+            it += 1
         self.weights = None
         self.prior = prior
         self._num_iters = it
-        return self
 
     ### Abstract interfaces to be implemented by inheriting models ###
 

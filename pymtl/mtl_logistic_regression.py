@@ -29,8 +29,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         self.optim_algo = optim_algo
         self.pred_threshold = pred_threshold
         self._classes = None
-        self._prior = None
-        self._weights = None
+        self.weights = None
         self._invSigma = None
         self._set_internal_classes([0,1])
 
@@ -47,7 +46,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         X_train = features
         y_train, self._classes = self._convert_classes(targets)
         # Setup prior if not already done
-        if self._prior is None:
+        if self.prior is None:
             self.init_model(X_train.shape, y_train.shape)
         max_iter = 10000
         conv_tol = 0.01
@@ -75,13 +74,9 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         Given data points, return the probability of class 1
         """
         # Check arguments
-        assert features.shape[1] == len(self._prior.mu), \
+        assert features.shape[1] == len(self.prior.mu), \
             'feature dimensionality is not compatible with this model!'
-        if self._weights is None:
-            w = self._prior.mu
-        else:
-            w = self._weights
-        prob = sigmoid(features.dot(w))
+        prob = sigmoid(features.dot(self.weights))
         return prob
 
     def predict_log_proba(self, features):
@@ -97,11 +92,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         X = features
         y = self._convert_classes(targets)[0]
         
-        if self._weights is None:
-            w = self._prior.mu
-        else:
-            w = self._weights
-        err = self._cross_entropy_error(X, y, w=w)
+        err = self._cross_entropy_error(X, y, w=self.weights)
         return err
 
     @BayesRegressionClassifier.prior.setter
@@ -110,7 +101,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         TODO
         """
         self._attr_prior = prior
-        self._invSigma = np.linalg.inv(self._prior.Sigma)
+        self._invSigma = np.linalg.inv(self.prior.Sigma)
 
     ###########################################################################
     # Auxiliary private methods used internally by this model
@@ -131,11 +122,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         """
         X = features
         y, self._classes = self._convert_classes(targets)
-        if self._weights is None:
-            w = self._prior.mu
-        else:
-            w = self._weights
-        grad = self._crossentropy_grad(X, y, w)
+        grad = self._crossentropy_grad(X, y, self.weights)
         return grad.reshape((len(grad), 1))
 
     def _minimize_crossentropy(self, X, y, max_iter=10000, tol=0.01, verbose='warn'):
@@ -196,7 +183,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         """
         # Retrieve useful variables
         n_samples = len(X)
-        d = len(self._prior.mu)
+        d = len(self.prior.mu)
         # Check arguments
         assert X.shape[1] == d, \
             'feature dimensionality is not compatible with this model!'
@@ -205,7 +192,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         assert y.shape[1] == 1, \
             ('Labels have to be a column vector, but is of shape ')
         # Create initial weight vector if none was set before
-        w0 = np.copy(self._prior.mu)
+        w0 = np.copy(self.prior.mu)
         # Minimize multi-task cross entropy loss
         if verbose == 'enable':
             print('Init loss:' + str(self._cross_entropy_error(X, y, w0)))
@@ -215,13 +202,13 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         f_hess = None
         result = scipy.optimize.minimize(fun=f_loss, x0=w0, method='Newton-CG',
                                          jac=f_grad, hess=f_hess)
-        self._weights = result.x.reshape((d, 1))
+        self.weights = result.x.reshape((d, 1))
         if verbose and not result.success:
             print('Warning! Optimization convergence failed!')
             print(result.message)
         # Return final vector and evaluation
         if verbose == 'enable':
-            print('Final loss: ' + str(self._cross_entropy_error(X, y, self._weights)))
+            print('Final loss: ' + str(self._cross_entropy_error(X, y, self.weights)))
 
 
     def _minimize_crossentropy_agd(self, X, y, max_iter, tol, verbose):
@@ -250,21 +237,21 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         dec_rate = 0.75
         v_lvl = 100
         # Initialize weights and learning rates
-        self._weights = np.zeros(self._mu_w.shape)
+        self.weights = np.zeros(self._mu_w.shape)
         eta_w = np.array([0.0001] * d).reshape((d, 1))
         eta_global = 1.0
         grad_w = np.zeros((d, 1))
         # Start gradient descent optimization
         if verbose == 'enable':
-            print('Initial CE error:' + str(self._cross_entropy_error(X, y, w=self._weights)))
+            print('Initial CE error:' + str(self._cross_entropy_error(X, y, w=self.weights)))
         for i in range(max_iter):
-            w_prev = self._weights
+            w_prev = self.weights
             grad_w_prev = grad_w
             # Update spectral weights
-            grad_w = self._crossentropy_grad(X, y, self._weights).reshape((d, 1))
-            self._weights = self._weights - eta_global * eta_w * grad_w
+            grad_w = self._crossentropy_grad(X, y, self.weights).reshape((d, 1))
+            self.weights = self.weights - eta_global * eta_w * grad_w
             # Check convergence status
-            conv_w = np.sum(np.abs(self._weights - w_prev) < tol * np.abs(w_prev))
+            conv_w = np.sum(np.abs(self.weights - w_prev) < tol * np.abs(w_prev))
             if conv_w == d:
                 break
             # Find all sign switches
@@ -276,7 +263,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
             eta_w[ns_w] = eta_w[ns_w] + inc_rate * eta_w[ns_w]
         # Print final information and return optimal weights
         if verbose == 'enable':
-            print('Final CE error: ' + str(self._cross_entropy_error(X, y, w=self._weights)))
+            print('Final CE error: ' + str(self._cross_entropy_error(X, y, w=self.weights)))
         if verbose and i == max_iter - 1:
             warnings.warn('FD-AGD minimization did not converge after ' +
                           str(max_iter) + ' iterations!')
@@ -309,20 +296,20 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         v_lvl = 100
         # Initialize weights and learning rates
         eta = 0.1
-        self._weights = np.copy(self._prior.mu)
-        ce_current = self._cross_entropy_error(X, y, w=self._weights)
+        self.weights = np.copy(self.prior.mu)
+        ce_current = self._cross_entropy_error(X, y, w=self.weights)
         # Start gradient descent optimization
         if verbose == 'enable':
             print('Initial CE error: ' + str(ce_current))
         for i in range(max_iter):
             ce_prev = ce_current
-            w_prev = self._weights
+            w_prev = self.weights
             # Update spectral weights
-            grad_w = self._crossentropy_grad(X, y, self._weights).reshape((d, 1))
-            self._weights = self._weights - eta * grad_w
+            grad_w = self._crossentropy_grad(X, y, self.weights).reshape((d, 1))
+            self.weights = self.weights - eta * grad_w
             # Check convergence status
-            ce_current = self._cross_entropy_error(X, y, w=self._weights)
-            diff_w = np.abs(self._weights - w_prev)
+            ce_current = self._cross_entropy_error(X, y, w=self.weights)
+            diff_w = np.abs(self.weights - w_prev)
             conv_w = np.sum(diff_w < tol * np.abs(w_prev))
             diff_ce = np.abs(ce_prev - ce_current)
             if diff_ce < tol * 1e-3:
@@ -331,7 +318,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
             if ce_current >= ce_prev:
                 # Decrease learning rate and withdraw iteration
                 eta = dec_rate * eta
-                self._weights = w_prev
+                self.weights = w_prev
                 ce_current = ce_prev
             else:
                 # Slowly increase learning rate
@@ -368,7 +355,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         """
         # Retrieve useful variables
         n_samples = len(X)
-        n_features = len(self._prior.mu)
+        n_features = len(self.prior.mu)
         # Check arguments
         assert X.shape[1] == n_features, \
             'feature dimensionality is not compatible with this model!'
@@ -381,10 +368,10 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
             w = w.reshape((len(w), 1))
         # Compute gradient
         diff = sigmoid(X.dot(w)) - y
-        penalty_w = (w - self._prior.mu)
+        penalty_w = (w - self.prior.mu)
         # Compute final gradient and add penalty term
         grad = X.T.dot(diff)
-        grad = self._prior.Sigma.dot(grad) + self.lam*penalty_w
+        grad = self.prior.Sigma.dot(grad) + self.lam*penalty_w
         return grad.flatten()
 
 
@@ -418,7 +405,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         """
         # Retrieve useful variables
         n_samples = len(X)
-        n_features = len(self._prior.mu)
+        n_features = len(self.prior.mu)
         # Check arguments
         assert X.shape[1] == n_features, \
             'feature dimensionality is not compatible with this model!'
@@ -468,7 +455,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
     #     """
     #     # Retrieve useful variables
     #     n_samples = len(X)
-    #     n_features = len(self._prior.mu)
+    #     n_features = len(self.prior.mu)
     #     # Check arguments
     #     assert X.shape[1] == n_features, \
     #         'feature dimensionality is not compatible with this model!'
@@ -487,7 +474,7 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
     #     # are close to zero, a small value of 1e-6 is added to those arguments.
     #     h = sigmoid(X.dot(w))
     #     ce = -np.sum(y*np.log(h+1e-9) + (1-y)*np.log(1-h+1e-9))
-    #     zm = (w - self._prior.mu)
+    #     zm = (w - self.prior.mu)
     #     penalty = 0.5*zm.T.dot(self._invSigma.dot(zm)).flatten()[0]
     #     return ce + self.lam*penalty
 
@@ -497,6 +484,6 @@ class BayesLogisticClassifier(BayesRegressionClassifier, GradientInterface):
         # are close to zero, a small value of 1e-6 is added to those arguments.
         h = sigmoid(X.dot(w))
         ce = -np.sum(y*np.log(h+1e-100) + (1-y)*np.log(1-h+1e-100))
-        zm = (w - self._prior.mu)
+        zm = (w - self.prior.mu)
         penalty = 0.5*zm.T.dot(self._invSigma.dot(zm)).flatten()[0]
         return ce + self.lam*penalty

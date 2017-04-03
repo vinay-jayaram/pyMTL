@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import division
+import functools
 import numpy as np
 from sklearn import covariance
 from abc import ABCMeta, abstractmethod
@@ -163,6 +164,9 @@ class LowRankGaussianParams(SKGaussianParams):
         """
         Given samples, iteratively update mu and sigma until convergence
         """
+        M = [numerics.unvech(s,self.D) for s in samples]
+        print('Number of samples that are PSD: {}'.format(
+            functools.reduce(lambda x,y: x + int((np.linalg.eig(y)[0] >= 0).all()), M, 0)))
         diff = 1e10
         it = 0
         while diff > self.conv_tol and it < self.max_its:
@@ -170,6 +174,7 @@ class LowRankGaussianParams(SKGaussianParams):
             #pdb.set_trace()
             self.mu = self.estimate_mean(samples, self.Sigma)
             self.Sigma = self.estimate_cov(samples, self.mu)
+            print('sanity: covariance is PD: {}'.format((np.linalg.eig(self.Sigma)[0] > 0).all()))
             diff = self.diff(prev_prior)
             it += 1
             print('Prior iteration {}, difference {}'.format(it, diff))

@@ -4,7 +4,7 @@ import numpy as np
 from pymtl.interfaces.mtl_bayesian_prior_models import BayesPriorTL
 import pymtl.interfaces.mtl_priors as priors
 from sklearn import metrics
-from pymtl.misc import numerics 
+
 
 __author__ = "Vinay Jayaram, Karl-Heinz Fiebig"
 __copyright__ = "Copyright 2017"
@@ -16,14 +16,14 @@ class BayesRegression(BayesPriorTL):
     """
 
     def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, 
-                 lam_style='ML', estimator='OAS'):
+                 lam_style='ML', estimator='OAS', parallel=False):
         """
         max_prior_iter: see mtl_bayesian_prior_models
         prior_conv_tol: see mtl_bayesian_prior_models
         lam:            see mtl_bayesian_prior_models
         lam_style:      see mtl_bayesian_prior_models
         """
-        super(BayesRegression, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style)
+        super(BayesRegression, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style, parallel)
         self._classes = None
         self.estimator = estimator
 
@@ -56,11 +56,7 @@ class BayesRegression(BayesPriorTL):
         Returns predicted values given features
         """
         # TODO arg checks
-        if self.weights is None:
-            w = self.prior.mu
-        else:
-            w = self.weights
-        pred = features.dot(w)
+        pred = features.dot(self.weights).flatten()
         return pred
 
     def score(self, features, targets):
@@ -75,12 +71,9 @@ class BayesRegression(BayesPriorTL):
         Specifies squared loss for this particular model
         """
         X = features
-        y = targets.reshape(len(targets), 1)
-        if self.weights is None:
-            w = self.prior.mu
-        else:
-            w = self.weights
-        pred = X.dot(w)
+        y = targets.flatten()
+        pred = self.predict(X)
+        #import pdb; pdb.set_trace()
         err = np.sum(np.power(y-pred, 2)) #/ len(y)
         return err
 
@@ -116,7 +109,7 @@ class BayesRegression(BayesPriorTL):
 class BayesRegressionClassifier(BayesRegression):
 
     def __init__(self, max_prior_iter=100, prior_conv_tol=1e-4, lam=1, 
-                 lam_style='ML', estimator='OAS'):
+                 lam_style='ML', estimator='OAS', parallel=False):
         """
         is_classifier:  converts to internal label representation if true
         max_prior_iter: see mtl_bayesian_prior_models
@@ -127,7 +120,7 @@ class BayesRegressionClassifier(BayesRegression):
         """
         self._set_internal_classes([-1,1])
         super(BayesRegressionClassifier, self).__init__(max_prior_iter, prior_conv_tol, lam, 
-                                                        lam_style, estimator)
+                                                        lam_style, estimator, parallel)
 
 
     def fit(self, features, targets):
@@ -171,13 +164,17 @@ class BayesRegressionClassifier(BayesRegression):
         y = self._convert_classes(targets)[0]
         return super(BayesRegressionClassifier,self).loss(features, y)
 
+    def predict_raw(self, features):
+        """
+        Get raw predicted values
+        """
+        return super(BayesRegressionClassifier, self).predict(features)
+
     def predict(self, features):
         """
         Returns predicted values given features
         """
-        pred = super(BayesRegressionClassifier,self).predict(features)
-        pred = self._recover_classes(np.sign(pred))
-        return pred
+        return self._recover_classes(np.sign(self.predict_raw(features))).flatten()
 
     def score(self, features, targets):
         """
@@ -186,76 +183,24 @@ class BayesRegressionClassifier(BayesRegression):
         
         return metrics.accuracy_score(self.predict(features), targets.flatten())
 
-class SpatiotemporalRegressionClassifier(BayesRegressionClassifier):
-    
-    def __init__(self, nu=1, prior_rank=5, max_prior_conv_iter=10, max_prior_iter=100,
-                 prior_conv_tol=1e-4, lam=1, lam_style='ML', estimator='OAS'):
-        """
-        is_classifier:  converts to internal label representation if true
-        max_prior_iter: see mtl_bayesian_prior_models
-        prior_conv_tol: see mtl_bayesian_prior_models
-        lam:            see mtl_bayesian_prior_models
-        lam_style:      see mtl_bayesian_prior_models
-        TODO: Allow for non {-1,1} internal labelling
-        """
-        super(SpatiotemporalRegressionClassifier, self).__init__(max_prior_iter,
-                                                                 prior_conv_tol, 
-                                                                 lam,
-                                                                 lam_style,
-                                                                 estimator)
-        self.nu = nu
-        self.prior_rank = prior_rank
-        self.max_prior_conv_iter = max_prior_conv_iter
+    def tests(self, X, Y):
+        '''
+        (X,Y): takes data and performs sanity checks to ensure there are no silly errors
 
-    def fit(self, features, targets):
-        if features.ndim == 3:
-            features = self._to_cov_features(features)
-        super(SpatiotemporalRegressionClassifier, self).fit(features, targets)
+        Current tests:
+        1. Ensure there are members of both classes in the output (overfit, just to 
+        confirm that it trains)
+        2. print the means of the classes in the projected space
+        '''
 
-    def _to_cov_features(self, X):
-        n_samples = X.shape[0]
-        if self.weights is None:
-            self.init_model(X.shape)
-        features = np.empty((n_samples, len(self.weights)))
-        for idx in range(n_samples):
-            X_s = np.squeeze(X[idx,...])
-            #self._cov_estimator.fit(X_s.T)
-            #cov = self._cov_estimator.covariance_
-            cov = X_s.dot(X_s.T) / (n_samples-1)
-            features[idx, :] = numerics.vech(cov)
-        return features
-
-    def init_model(self, dim, dim_targets=0, init_val=0):
-        vech_dim = dim[1]*(dim[1]+1)/2
-        #prior = LowRankGaussianParams(vech_dim, nu=self.nu, 
-        #                              estimator=self.estimator, 
-        #                              k=self.prior_rank, 
-        #                              max_its=self.max_prior_conv_iter)
-        prior = priors.SKGaussianParams(vech_dim, estimator=self.estimator,
-                                 init_mean_val=init_val, init_var_val=1)
-        self.prior = prior
-        self.weights = np.copy(self.prior.mu)
-
-    def predict(self,features):
-        if features.ndim == 3:
-            features = self._to_cov_features(features)
-        return super(SpatiotemporalRegressionClassifier, self).predict(features)
-
-
-    def loss(self, features, targets):
-        if features.ndim == 3:
-            features = self._to_cov_features(features)
-        return super(SpatiotemporalRegressionClassifier, self).loss(features, targets)
-
-class TemporalBRC(BayesRegressionClassifier):
-    
-    def __init__(self,max_prior_iter=100, prior_conv_tol=1e-4, lam=1,
-                 lam_style='ML', estimator='OAS'):
-        super(TemporalBRC, self).__init__(max_prior_iter, prior_conv_tol, lam,
-                                          lam_style, estimator)
-
-    def init_model(self, dim, dim_targets, init_val=0):
-        prior = priors.SKGaussianParams(dim[1], estimator=self.estimator, init_mean_val=init_val,
-                           init_var_val=1)
-        self.prior = prior
-        self.weights = np.copy(self.prior.mu)
+        # test 1
+        # train model on data
+        self.fit(X,Y)
+        yhat = self.predict(X)
+        vals = self.predict_raw(X)
+        u = np.unique(Y)
+        print('Score on training data: {}'.format(self.score(X,Y)))
+        print('Class 0 correct: {}/{}'.format((yhat == u[0]).sum(),(Y==u[0]).sum()))
+        print('Projected mean of class 0: {:.2f}'.format(self.predict_raw(X[Y==u[0],...]).mean()))
+        print('Class 1 correct: {}/{}'.format((yhat == u[1]).sum(),(Y==u[1]).sum()))
+        print('Projected mean of class 1: {:.2f}'.format(self.predict_raw(X[Y==u[1],...]).mean()))
