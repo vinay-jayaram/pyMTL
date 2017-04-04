@@ -16,14 +16,14 @@ class BayesRegression(BayesPriorTL):
     """
 
     def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, 
-                 lam_style='ML', estimator='OAS', parallel=False):
+                 lam_style='ML', estimator='OAS'):
         """
         max_prior_iter: see mtl_bayesian_prior_models
         prior_conv_tol: see mtl_bayesian_prior_models
         lam:            see mtl_bayesian_prior_models
         lam_style:      see mtl_bayesian_prior_models
         """
-        super(BayesRegression, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style, parallel)
+        super(BayesRegression, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style)
         self._classes = None
         self.estimator = estimator
 
@@ -109,7 +109,7 @@ class BayesRegression(BayesPriorTL):
 class BayesRegressionClassifier(BayesRegression):
 
     def __init__(self, max_prior_iter=100, prior_conv_tol=1e-4, lam=1, 
-                 lam_style='ML', estimator='OAS', parallel=False):
+                 lam_style='ML', estimator='OAS'):
         """
         is_classifier:  converts to internal label representation if true
         max_prior_iter: see mtl_bayesian_prior_models
@@ -120,7 +120,7 @@ class BayesRegressionClassifier(BayesRegression):
         """
         self._set_internal_classes([-1,1])
         super(BayesRegressionClassifier, self).__init__(max_prior_iter, prior_conv_tol, lam, 
-                                                        lam_style, estimator, parallel)
+                                                        lam_style, estimator)
 
 
     def fit(self, features, targets):
@@ -198,9 +198,16 @@ class BayesRegressionClassifier(BayesRegression):
         self.fit(X,Y)
         yhat = self.predict(X)
         vals = self.predict_raw(X)
-        u = np.unique(Y)
+        ret = []
         print('Score on training data: {}'.format(self.score(X,Y)))
-        print('Class 0 correct: {}/{}'.format((yhat == u[0]).sum(),(Y==u[0]).sum()))
-        print('Projected mean of class 0: {:.2f}'.format(self.predict_raw(X[Y==u[0],...]).mean()))
-        print('Class 1 correct: {}/{}'.format((yhat == u[1]).sum(),(Y==u[1]).sum()))
-        print('Projected mean of class 1: {:.2f}'.format(self.predict_raw(X[Y==u[1],...]).mean()))
+        for y in self._classes:
+            trueind = np.where(Y==y)
+            hatind = np.where(yhat == y)
+            print('Class {} correct: {}/{}'.format(y,
+                                                   len(np.intersect1d(trueind,hatind)),
+                                                   len(trueind)))
+            print('Projected mean of class {}: {:.2f}'.format(y,
+                                                        self.predict_raw(X[Y==y,...]).mean()))
+            ret.append(vals[Y==y])
+        
+        return ret
