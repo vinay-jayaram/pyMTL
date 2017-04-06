@@ -83,7 +83,6 @@ class BayesPriorTL(TransferLearningBase):
         self.lam_style = lam_style
         self._attr_prior = None
         self._attr_weights = None
-        self.parallel = parallel
 
         # Init other attributes
         self._task_models = []
