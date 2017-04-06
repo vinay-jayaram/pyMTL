@@ -109,11 +109,11 @@ class BayesPriorTL(TransferLearningBase):
         if n_cores == 1:
             print('Using serial approach to task updates')
             self._multitask_update_serial(lst_features, lst_targets, verbose)
-        elif n_cores == None::
+        elif n_cores == None:
             print('Automatically determining cores to process with. Attempting parallel processing with {} cores'.format(multiprocessing.cpu_count()-1))
             self._multitask_update_parallel(lst_features, lst_targets, 
                                            verbose, multiprocessing.cpu_count()-1)
-        else
+        else:
             print('Attempting parallel processing with {} cores'.format(n_cores))
             self._multitask_update_parallel(lst_features, lst_targets, 
                                             verbose, n_cores)
