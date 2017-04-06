@@ -242,3 +242,4 @@ def solve_fir_coef(w):
                         method='lm')
     #print(sol)
     return sol.x/sol.x[0],[sympy.lambdify(b,b[i:].T.dot(b[:(ndim-i)])) for i in range(ndim)]
+

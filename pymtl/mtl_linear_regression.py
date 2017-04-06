@@ -4,6 +4,8 @@ import numpy as np
 from pymtl.interfaces.mtl_bayesian_prior_models import BayesPriorTL
 import pymtl.interfaces.mtl_priors as priors
 from sklearn import metrics
+from pymtl.misc import numerics 
+
 
 
 __author__ = "Vinay Jayaram, Karl-Heinz Fiebig"
@@ -16,7 +18,8 @@ class BayesRegression(BayesPriorTL):
     """
 
     def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, 
-                 lam_style='ML', estimator='OAS'):
+                 lam_style='ML', estimator='OAS', priortype=priors.SKGaussianParams,
+                 priorparams={}):
         """
         max_prior_iter: see mtl_bayesian_prior_models
         prior_conv_tol: see mtl_bayesian_prior_models
@@ -26,6 +29,8 @@ class BayesRegression(BayesPriorTL):
         super(BayesRegression, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style)
         self._classes = None
         self.estimator = estimator
+        self.priortype = priortype
+        self.priorparams = priorparams
 
     def fit(self, features, targets, lam=None):
         """
@@ -81,8 +86,8 @@ class BayesRegression(BayesPriorTL):
         """
         Initialize the prior given an initial value
         """
-        prior = priors.SKGaussianParams(dim[1], estimator=self.estimator, 
-                                 init_mean_val=init_val, init_var_val=1)
+        prior = self.priortype(dim[1], estimator=self.estimator, 
+                                 init_mean_val=init_val, init_var_val=1,**self.priorparams)
         self.prior = prior
         self.weights = np.copy(self.prior.mu)
 
@@ -107,9 +112,9 @@ class BayesRegression(BayesPriorTL):
             self._attr_weights = np.copy(weights)
 
 class BayesRegressionClassifier(BayesRegression):
-
-    def __init__(self, max_prior_iter=100, prior_conv_tol=1e-4, lam=1, 
-                 lam_style='ML', estimator='OAS'):
+    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, 
+                 lam_style='ML', estimator='OAS', priortype=priors.SKGaussianParams,
+                 priorparams={}):
         """
         is_classifier:  converts to internal label representation if true
         max_prior_iter: see mtl_bayesian_prior_models
@@ -120,7 +125,8 @@ class BayesRegressionClassifier(BayesRegression):
         """
         self._set_internal_classes([-1,1])
         super(BayesRegressionClassifier, self).__init__(max_prior_iter, prior_conv_tol, lam, 
-                                                        lam_style, estimator)
+                                                        lam_style, estimator, priortype,
+                                                        priorparams)
 
 
     def fit(self, features, targets):
@@ -201,8 +207,8 @@ class BayesRegressionClassifier(BayesRegression):
         ret = []
         print('Score on training data: {}'.format(self.score(X,Y)))
         for y in self._classes:
-            trueind = np.where(Y==y)
-            hatind = np.where(yhat == y)
+            trueind = np.where(Y==y)[0]
+            hatind = np.where(yhat == y)[0]
             print('Class {} correct: {}/{}'.format(y,
                                                    len(np.intersect1d(trueind,hatind)),
                                                    len(trueind)))

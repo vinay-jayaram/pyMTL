@@ -101,9 +101,6 @@ class SpatioTemporalBayesRegression(BayesPriorTL):
         X = self._to_cov_features(X)
         return X.dot(self._weights).flatten()
 
-    def score(self,X, y):
-        return np.mean(np.sign(self.predict(X)) == y)
-
     def init_model(self, data_dim):
         d = data_dim[0]
         self._prior_mu = np.zeros((int(0.5*(d*d+d)), 1))
@@ -137,10 +134,6 @@ class SpatioTemporalBayesRegression(BayesPriorTL):
         W = numerics.unvech(w, norm_conserved=False)
         lam = 0.0
         step_size = 0.1
-        Z = W
-        while np.linalg.matrix_rank(Z) > self.target_rank and lam <= 1.0:
-            Z = numerics.complete_matrix(W, lam=lam, beta=1e100)
-            lam = lam + step_size
             print(np.linalg.matrix_rank(Z))
         # print if Z is symmetric
         print('Symmetric: {}'.format((Z ==Z.T).all()))
