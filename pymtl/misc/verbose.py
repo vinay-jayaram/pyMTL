@@ -12,9 +12,9 @@ OFF = 0
 WARN = 1
 ON = 2
 
-level = ON
+print_level = WARN
 
 
 def pyout(msg, lvl=ON):
-    if level >= lvl:
+    if lvl > print_level:
         print(msg)

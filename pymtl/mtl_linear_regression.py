@@ -19,14 +19,15 @@ class BayesRegression(BayesPriorTL):
 
     def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, 
                  lam_style='ML', estimator='OAS', priortype=priors.SKGaussianParams,
-                 priorparams={}):
+                 priorparams={}, prior=None):
         """
         max_prior_iter: see mtl_bayesian_prior_models
         prior_conv_tol: see mtl_bayesian_prior_models
         lam:            see mtl_bayesian_prior_models
         lam_style:      see mtl_bayesian_prior_models
         """
-        super(BayesRegression, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style)
+        super(BayesRegression, self).__init__(max_prior_iter, prior_conv_tol, lam,
+                                              lam_style, prior=prior)
         self._classes = None
         self.estimator = estimator
         self.priortype = priortype
@@ -49,6 +50,7 @@ class BayesRegression(BayesPriorTL):
             lam = self.lam
         # Setup prior if not already done
         if self.prior is None:
+            print('no prior, initializing to ridge regression')
             self.init_model(X_train.shape, y_train.shape)
         covX = self.prior.Sigma.dot(X_train.T)
         self.weights = np.linalg.lstsq(1.0/lam*covX.dot(X_train) + np.eye(X_train.shape[1]),
@@ -111,10 +113,28 @@ class BayesRegression(BayesPriorTL):
         else:
             self._attr_weights = np.copy(weights)
 
+    # def test(self, dim=10, nsamples=100, nsubj=10):
+    #     '''
+    #     Test for MTL where we generate data according to our assumptions and 
+    #     see how close the prior can get. 
+    #     '''
+    #     true_mean = np.random.randn(dim)*5
+    #     tmp = np.random.randn((dim,dim))*5
+    #     true_cov = 0.5 * (tmp + tmp.T) + np.eye(dim)*0.1
+    #     lam = np.random.rand(nsubj)*5
+    #     wlist = np.random.multivariate_normal(true_mean, true_cov, size=(nsubjects,))
+    #     Xlist = [np.random.randn((nsamples, dim))*10 for i in range(nsubj)]
+    #     ylist = [Xlist[i].dot(wlist[i]) + np.random.normal(0, lam[i], nsamples) for i in range(nsubj)]
+    #     self.fit_multi_task(Xlist[:-1], ylist[:-1])
+    #     print('mean difference in means: {:.2e}'.format(np.mean((true_mean - self.prior.mu)^2)))
+        
+        
+        
+
 class BayesRegressionClassifier(BayesRegression):
     def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, 
                  lam_style='ML', estimator='OAS', priortype=priors.SKGaussianParams,
-                 priorparams={}):
+                 priorparams={}, prior=None):
         """
         is_classifier:  converts to internal label representation if true
         max_prior_iter: see mtl_bayesian_prior_models
@@ -126,8 +146,7 @@ class BayesRegressionClassifier(BayesRegression):
         self._set_internal_classes([-1,1])
         super(BayesRegressionClassifier, self).__init__(max_prior_iter, prior_conv_tol, lam, 
                                                         lam_style, estimator, priortype,
-                                                        priorparams)
-
+                                                        priorparams, prior=prior)
 
     def fit(self, features, targets):
         """
@@ -181,6 +200,9 @@ class BayesRegressionClassifier(BayesRegression):
         Returns predicted values given features
         """
         return self._recover_classes(np.sign(self.predict_raw(features))).flatten()
+
+    def decision_function(self, features):
+        return self.predict(features)
 
     def score(self, features, targets):
         """

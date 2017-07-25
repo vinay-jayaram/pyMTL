@@ -4,8 +4,7 @@
 import numpy as np
 from sklearn.covariance import oas
 from pymtl.misc import verbose as vb
-import sympy 
-import scipy.optimize as optimize
+
 
 #from fancyimpute import SoftImpute, NuclearNormMinimization
 
@@ -220,26 +219,5 @@ def unvech(x, D=None):
         D = generate_duplication_matrix(n)
     return D.dot(x).reshape((n,n))
 
-def solve_fir_coef(w):
-    '''
-    Solve for FIR coefficients given regression coefficients for autocovariance matrices
-    '''
-    ndim = len(w)
-    # strategy: start at the back and substitute up, then recursively calculate coefficients
-    b = sympy.symarray('b',ndim)
-    matb = sympy.Matrix(b)
-    eqns = [b[i:].T.dot(b[:(ndim-i)]) - w[i] for i in range(ndim)]
-    # generate vector function and jacobian
-    f = sympy.Matrix(eqns)
-    J_f = f.jacobian(matb)
-    # lambdify
-    F = sympy.lambdify(b, f)
-    J_F = sympy.lambdify(b ,J_f)
 
-    sol = optimize.root(lambda x: F(*x).ravel(),
-                        np.random.rand(len(w)),
-                        jac=lambda x: J_F(*x),
-                        method='lm')
-    #print(sol)
-    return sol.x/sol.x[0],[sympy.lambdify(b,b[i:].T.dot(b[:(ndim-i)])) for i in range(ndim)]
 

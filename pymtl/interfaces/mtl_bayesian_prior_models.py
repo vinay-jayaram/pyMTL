@@ -53,7 +53,7 @@ class BayesPriorTL(TransferLearningBase):
         """
         return self
 
-    def __init__(self, max_prior_iter, prior_conv_tol, lam, lam_style):
+    def __init__(self, max_prior_iter, prior_conv_tol, lam, lam_style, prior=None):
         """Constructor for an instance of GaussianPriorTL.
 
         Abstract class constructor to setup the parameters for multi-task training of a
@@ -81,7 +81,7 @@ class BayesPriorTL(TransferLearningBase):
         self.prior_conv_tol = prior_conv_tol
         self.lam = lam
         self.lam_style = lam_style
-        self._attr_prior = None
+        self._attr_prior = prior
         self._attr_weights = None
 
         # Init other attributes
@@ -89,7 +89,11 @@ class BayesPriorTL(TransferLearningBase):
         self._adapted_model = None
         self._num_iters = 0
 
-    def fit_multi_task(self, lst_features, lst_targets, verbose=vb.ON, n_cores=1):
+    def pre_fit(self, lst_features, lst_targets, verbose=vb.WARN, n_jobs=1):
+        self.fit_multi_task(lst_features, lst_targets, verbose, n_jobs)
+        return self
+        
+    def fit_multi_task(self, lst_features, lst_targets, verbose, n_jobs=1):
         """
         Generic fitting of all tasks TODO
         """
@@ -105,17 +109,17 @@ class BayesPriorTL(TransferLearningBase):
         self.init_model(dim_features, dim_targets, init_val=0)
         self._task_models = [] # Reset models already stored in this instance before cloning
         self._task_models = [self.clone() for i in range(n_tasks)]
-        if n_cores == 1:
+        if n_jobs == 1:
             print('Using serial approach to task updates')
             self._multitask_update_serial(lst_features, lst_targets, verbose)
-        elif n_cores == None:
+        elif n_jobs == None:
             print('Automatically determining cores to process with. Attempting parallel processing with {} cores'.format(multiprocessing.cpu_count()-1))
             self._multitask_update_parallel(lst_features, lst_targets, 
                                            verbose, multiprocessing.cpu_count()-1)
         else:
-            print('Attempting parallel processing with {} cores'.format(n_cores))
+            print('Attempting parallel processing with {} cores'.format(n_jobs))
             self._multitask_update_parallel(lst_features, lst_targets, 
-                                            verbose, n_cores)
+                                            verbose, n_jobs)
         return self
 
     def _multitask_update_parallel(self, lst_features, lst_targets, verbose, ncores):
@@ -163,7 +167,7 @@ class BayesPriorTL(TransferLearningBase):
                     for model in self._task_models:
                         model.set_params(lam=lam)
                 end = time.time()
-                vb.pyout('[{}] Prior Iteration {} ({}s); Convergence: {:.2e}; lambda: {:.2e}; mean loss: {:.2e}'.format(
+                vb.pyout('[{}] Prior Iteration {} ({:.2e}s); Convergence: {:.2e}; lambda: {:.2e}; mean loss: {:.2e}'.format(
                     type(self).__name__, it, round(end - start, 1), diff, self.lam, np.mean(lst_loss)
                 ), lvl=verbose)
                 if diff <= self.prior_conv_tol:
@@ -217,7 +221,7 @@ class BayesPriorTL(TransferLearningBase):
                 for model in self._task_models:
                     model.set_params(lam=lam)
             end = time.time()
-            vb.pyout('[{}] Prior Iteration {} ({}s); Convergence: {:.2f}; lambda: {:.2f}; mean loss: {:.2f}'.format(
+            vb.pyout('[{}] Prior Iteration {} ({:.2e}s); Convergence: {:.2e}; lambda: {:.2e}; mean loss: {:.2e}'.format(
                 type(self).__name__, it, round(end - start, 1), diff, self.lam, np.mean(lst_loss)
             ), lvl=verbose)
             if diff <= self.prior_conv_tol:
