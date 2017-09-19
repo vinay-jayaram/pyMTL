@@ -5,22 +5,22 @@
 
 import numpy as np
 from pymtl.interfaces.mtl_matrix_priors import MatrixGaussianParams, MatrixGaussianKronParams
-from pymtl.interfaces.mtl_bayesian_prior_models import BayesPriorTL
+from pymtl.interfaces.models import BayesMTL
 
 __author__ = "Karl-Heinz Fiebig"
 __copyright__ = "Copyright 2017"
 
 
-class BayesKroneckerRegression(BayesPriorTL):
+class BayesKroneckerRegression(BayesMTL):
     """Regression using matrix-variate Gaussian prior and matrix weight vector through Kronecker
     product formulations."""
 
-    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, lam=1, lam_style=None,
+    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, C=1, C_style=None,
                  use_kron_prior=True):
         """
         TODO
         """
-        super(BayesKroneckerRegression, self).__init__(max_prior_iter, prior_conv_tol, lam, lam_style)
+        super(BayesKroneckerRegression, self).__init__(max_prior_iter, prior_conv_tol, C, C_style)
         self._prior = None
         self._weights = None
         self.use_kron_prior = use_kron_prior
@@ -65,8 +65,8 @@ class BayesKroneckerRegression(BayesPriorTL):
             Sigma_kron = np.kron(self._prior.Sigma_c, self._prior.Sigma_r)
             vec_Mu = self._prior.Mu.flatten(order='F').reshape((dim_k*dim_m, 1))
         self._weights = np.linalg.lstsq(
-            Sigma_kron.dot(NN) + self.lam*np.eye(dim_k*dim_m),
-            Sigma_kron.dot(Ny) + self.lam*vec_Mu)[0]
+            Sigma_kron.dot(NN) + self.C*np.eye(dim_k*dim_m),
+            Sigma_kron.dot(Ny) + self.C*vec_Mu)[0]
         # Unvectorize weights
         self._weights = self._weights.reshape((dim_k, dim_m), order='F')
         return self

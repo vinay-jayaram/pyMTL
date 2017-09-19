@@ -2,8 +2,8 @@
 
 import numpy as np
 from pymtl.misc import numerics
-from pymtl.interfaces.mtl_priors import LowRankGaussianParams
-from pymtl.mtl_linear_regression import TemporalBRC
+from pymtl.interfaces.priors import LowRankGaussianParams
+from pymtl.linear_regression import TemporalBRC
 import scipy.io as scio
 import scipy.optimize as optimize
 import sympy
