@@ -14,30 +14,35 @@ class FeatureDecompositionModel(BayesMTL):
     """
     TODO
     """
-    
-    def __init__(self, max_prior_iter=1000, prior_conv_tol=1e-4, 
-                 C=1, C_style=None, Type='linear',
-                 max_fd_iter=100, fd_conv_tol=1e-3):
+
+    def __init__(self,
+                 max_prior_iter=1000,
+                 prior_conv_tol=1e-4,
+                 C=1,
+                 C_style=None,
+                 Type='linear',
+                 max_fd_iter=100,
+                 fd_conv_tol=1e-3):
         """
         TODO
         """
-        super(FeatureDecompositionModel, self).__init__(max_prior_iter, 
-                                                        prior_conv_tol, C, C_style)
+        super(FeatureDecompositionModel, self).__init__(
+            max_prior_iter, prior_conv_tol, C, C_style)
         self.Type = Type
         if Type == 'linear':
             self.spatial_model = BayesRegressionClassifier(
-                max_prior_iter=max_prior_iter, 
-                prior_conv_tol=prior_conv_tol, 
-                C=C, 
+                max_prior_iter=max_prior_iter,
+                prior_conv_tol=prior_conv_tol,
+                C=C,
                 C_style=C_style)
             self.spectral_model = self.spatial_model.clone()
         elif Type == 'logistic':
             self.spatial_model = BayesLogisticClassifier(
-                max_prior_iter=max_prior_iter, 
-                prior_conv_tol=prior_conv_tol, 
-                C=C, 
+                max_prior_iter=max_prior_iter,
+                prior_conv_tol=prior_conv_tol,
+                C=C,
                 C_style=C_style,
-                optim_algo='gd', 
+                optim_algo='gd',
                 pred_threshold=0.5)
             self.spectral_model = self.spatial_model.clone()
         else:
@@ -51,9 +56,10 @@ class FeatureDecompositionModel(BayesMTL):
         """
         # data safety
         if features.shape[0] != targets.shape[0]:
-            raise ValueError('Number of samples in data set ({}) does not match number of \
-                             samples ({}) in the target vector'.format(features.shape[0],
-                                                                       targets.shape[0]))
+            raise ValueError(
+                'Number of samples in data set ({}) does not match number of \
+                             samples ({}) in the target vector'
+                .format(features.shape[0], targets.shape[0]))
         # Setup prior if not already done
         if self.get_prior()[0] is None or self.get_prior()[1] is None:
             self.init_model(features.shape, targets.shape)
@@ -61,7 +67,8 @@ class FeatureDecompositionModel(BayesMTL):
         self.spatial_model.set_params(C=self.C)
         self.spectral_model.set_params(C=self.C)
 
-        if isinstance(self.spatial_model, GradientInterface) and isinstance(self.spectral_model, GradientInterface):
+        if isinstance(self.spatial_model, GradientInterface) and isinstance(
+                self.spectral_model, GradientInterface):
             self._fit_gradient_based(features, targets)
         else:
             self._fit_model_based(features, targets)
@@ -123,14 +130,19 @@ class FeatureDecompositionModel(BayesMTL):
         """
         TODO
         """
-        self.spatial_model.init_model((dim[0], dim[1]), dim_targets, init_val=1.0/np.sqrt(dim[1]))
-        self.spectral_model.init_model((dim[0], dim[2]), dim_targets, init_val=init_val)
+        self.spatial_model.init_model(
+            (dim[0], dim[1]), dim_targets, init_val=1.0 / np.sqrt(dim[1]))
+        self.spectral_model.init_model(
+            (dim[0], dim[2]), dim_targets, init_val=init_val)
 
     def get_weights(self):
         """
         TODO
         """
-        return [self.spatial_model.get_weights(), self.spectral_model.get_weights()]
+        return [
+            self.spatial_model.get_weights(),
+            self.spectral_model.get_weights()
+        ]
 
     def set_weights(self, weights):
         """
@@ -140,7 +152,7 @@ class FeatureDecompositionModel(BayesMTL):
             self.spatial_model.set_weights(None)
             self.spectral_model.set_weights(None)
         else:
-            assert(len(weights) == 2)
+            assert (len(weights) == 2)
             self.spatial_model.set_weights(weights[0])
             self.spectral_model.set_weights(weights[1])
 
@@ -148,13 +160,16 @@ class FeatureDecompositionModel(BayesMTL):
         """
         TODO
         """
-        return [self.spatial_model.get_prior(), self.spectral_model.get_prior()]
+        return [
+            self.spatial_model.get_prior(),
+            self.spectral_model.get_prior()
+        ]
 
     def set_prior(self, prior):
         """
         TODO
         """
-        assert(len(prior) == 2)
+        assert (len(prior) == 2)
         self.spatial_model.set_prior(prior[0])
         self.spectral_model.set_prior(prior[1])
 
@@ -163,12 +178,14 @@ class FeatureDecompositionModel(BayesMTL):
         for iter in range(self.max_fd_iter):
             loss_prev = loss_current
             # Train spatial and spectral models with corresponding feature spaces
-            Xa = np.squeeze(features.transpose(0, 2, 1).dot(self.spatial_model.get_weights()))
+            Xa = np.squeeze(
+                features.transpose(0, 2, 1).dot(
+                    self.spatial_model.get_weights()))
             self.spectral_model.fit(Xa, targets)
             Xw = np.squeeze(features.dot(self.spectral_model.get_weights()))
             self.spatial_model.fit(Xw, targets)
             loss_current = self.loss(features, targets)
-            if(np.abs(loss_prev - loss_current) <= self.fd_conv_tol):
+            if (np.abs(loss_prev - loss_current) <= self.fd_conv_tol):
                 break
 
     def _fit_gradient_based(self, features, targets):

@@ -32,7 +32,7 @@ class MTLRegression(BayesMTL):
         """
         super(MTLRegression, self).__init__(
             max_prior_iter, prior_conv_tol, C, C_style, prior=prior)
-        self._classes = None
+        self.classes_ = None
         self.estimator = estimator
         self.priortype = priortype
         self.priorparams = priorparams
@@ -172,7 +172,7 @@ class MTLRegressionClassifier(MTLRegression):
         Computes standard linear regression solution given current prior. Switches labels
         to allow for classification
         """
-        y_train, self._classes = self._convert_classes(targets)
+        y_train, self.classes_ = self._convert_classes(targets)
         super(MTLRegressionClassifier, self).fit(features, y_train)
         return self
 
@@ -201,7 +201,7 @@ class MTLRegressionClassifier(MTLRegression):
             class_inds.append(np.where(targets == self._internal_classes[ind]))
         for ind in range(2):
             y[class_inds[ind]] = ind
-        return np.array([self._classes[int(i)] for i in y])
+        return np.array([self.classes_[int(i)] for i in y])
 
     def loss(self, features, targets):
         """
@@ -251,7 +251,7 @@ class MTLRegressionClassifier(MTLRegression):
         vals = self.predict_raw(X)
         ret = []
         print('Score on training data: {}'.format(self.score(X, Y)))
-        for y in self._classes:
+        for y in self.classes_:
             trueind = np.where(Y == y)[0]
             hatind = np.where(yhat == y)[0]
             print('Class {} correct: {}/{}'.format(
